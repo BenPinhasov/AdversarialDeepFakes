@@ -35,9 +35,10 @@ class Normalize(object):
         Returns:
             Tensor: Normalized image.
         """
-        for t, m, s in zip(tensor, self.mean, self.std):
-            t.sub_(m).div_(s)
-            # The normalize code -> t.sub_(m).div_(s)
+        transforms.functional.normalize(tensor, self.mean, self.std, inplace=True)
+        # for t, m, s in zip(tensor, self.mean, self.std):
+        #     t.sub(m).div(s)
+        #     # The normalize code -> t.sub_(m).div_(s)
         return tensor
 
 xception_default_data_transforms = {

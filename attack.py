@@ -165,6 +165,7 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
     # Read and write
     reader = cv2.VideoCapture(video_path)
 
+    video_path = video_path.replace('\\', '/') if '\\' in video_path else video_path
     video_fn = video_path.split('/')[-1].split('.')[0]+'.avi'
     os.makedirs(output_path, exist_ok=True)
 
@@ -185,7 +186,14 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
         if not cuda:
             model = torch.load(model_path, map_location = "cpu")
         else:
-            model = torch.load(model_path)
+            if model_type == 'meso':
+                model = model_selection(model_type, 2)[0]
+                weights = torch.load(model_path)
+                model.load_state_dict(weights)
+            elif model_type == 'xception':
+                model = torch.load(model_path)
+            else:
+                raise f"{model_type} not supported"
         print('Model found in {}'.format(model_path))
     else:
         print('No model found, initializing random model.')

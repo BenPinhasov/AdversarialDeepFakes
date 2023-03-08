@@ -25,10 +25,11 @@ from network.models import model_selection
 from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms
 import json
 
-
 # I don't recommend this, but I like clean terminal output.
 import warnings
+
 warnings.filterwarnings("ignore")
+
 
 def get_boundingbox(face, width, height, scale=1.3, minsize=None):
     """
@@ -100,13 +101,13 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
     """
     # Preprocess
     preprocessed_image = preprocess_image(image, model_type, cuda)
-    
+
     # Model prediction
     output = model(preprocessed_image)
     output = post_function(output)
 
     # Cast to desired
-    _, prediction = torch.max(output, 1)    # argmax
+    _, prediction = torch.max(output, 1)  # argmax
     prediction = float(prediction.cpu().numpy())
 
     return int(prediction), output
@@ -131,7 +132,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
     # Read and write
     reader = cv2.VideoCapture(video_path)
 
-    video_fn = video_path.split('/')[-1].split('.')[0]+'.avi'
+    video_fn = video_path.split('/')[-1].split('.')[0] + '.avi'
     os.makedirs(output_path, exist_ok=True)
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     fps = reader.get(cv2.CAP_PROP_FPS)
@@ -143,39 +144,48 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
 
     # Load model
     # model, *_ = model_selection(modelname='xception', num_out_classes=2)
+    # Load model
     if model_path is not None:
         if not cuda:
-            model = torch.load(model_path, map_location = "cpu")
+            model = torch.load(model_path, map_location="cpu")
         else:
-            model = torch.load(model_path)
+            if model_type == 'meso':
+                model = model_selection(model_type, 2)[0]
+                weights = torch.load(model_path)
+                model.load_state_dict(weights)
+            elif model_type == 'xception':
+                model = torch.load(model_path)
+            else:
+                raise f"{model_type} not supported"
         print('Model found in {}'.format(model_path))
     else:
         print('No model found, initializing random model.')
     if cuda:
         print("Converting mode to cuda")
         model = model.cuda()
+        for param in model.parameters():
+            param.requires_grad = True
         print("Converted to cuda")
 
     # Text variables
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     thickness = 2
-    font_scale = 1
+    font_scale = 0.5
 
     # Frame numbers and length of output video
     frame_num = 0
     assert start_frame < num_frames - 1
     end_frame = end_frame if end_frame else num_frames
-    pbar = tqdm(total=end_frame-start_frame)
-
+    pbar = tqdm(total=end_frame - start_frame)
 
     metrics = {
-        'total_fake_frames' : 0,
-        'total_real_frames' : 0,
-        'total_frames' : 0,
-        'percent_fake_frames' : 0,
-        'probs_list' : []
+        'total_fake_frames': 0,
+        'total_real_frames': 0,
+        'total_frames': 0,
+        'percent_fake_frames': 0,
+        'probs_list': []
     }
-    
+
     while reader.isOpened():
         _, image = reader.read()
         if image is None:
@@ -204,7 +214,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
             # --- Prediction ---------------------------------------------------
             # Face crop with dlib and bounding box scale enlargement
             x, y, size = get_boundingbox(face, width, height)
-            cropped_face = image[y:y+size, x:x+size]
+            cropped_face = image[y:y + size, x:x + size]
 
             # Actual prediction using our model
             prediction, output = predict_with_model(cropped_face, model, model_type,
@@ -212,7 +222,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
             # ------------------------------------------------------------------
 
             # Text and bb
-            print ("Prediction", prediction, output)
+            print("Prediction", prediction, output)
             x = face.left()
             y = face.top()
             w = face.right() - x
@@ -230,7 +240,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
             color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
             output_list = ['{0:.2f}'.format(float(x)) for x in
                            output.detach().cpu().numpy()[0]]
-            cv2.putText(image, str(output_list)+'=>'+label, (x, y+h+30),
+            cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
                         font_face, font_scale,
                         color, thickness, 2)
             # draw box over face
@@ -240,11 +250,11 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
             break
 
         # Show
-        #cv2.imshow('test', image)
-        #cv2.waitKey(33)     # About 30 fps
+        # cv2.imshow('test', image)
+        # cv2.waitKey(33)     # About 30 fps
         writer.write(image)
     pbar.close()
-    metrics['percent_fake_frames'] = metrics['total_fake_frames']/metrics['total_frames']
+    metrics['percent_fake_frames'] = metrics['total_fake_frames'] / metrics['total_frames']
 
     with open(join(output_path, video_fn.replace(".avi", "_metrics.json")), "w") as f:
         f.write(json.dumps(metrics))
@@ -255,13 +265,16 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
     else:
         print('Input video file was empty')
 
+
 # Disable
 def blockPrint():
     sys.stdout = open(os.devnull, 'w')
 
+
 # Restore
 def enablePrint():
     sys.stdout = sys.__stdout__
+
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(
@@ -281,7 +294,7 @@ if __name__ == '__main__':
         test_full_image_network(**vars(args))
     else:
         videos = os.listdir(video_path)
-        videos = [ video for video in videos if (video.endswith(".mp4") or video.endswith(".avi")) ]
+        videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
         pbar_global = tqdm(total=len(videos))
         for video in videos:
             args.video_path = join(video_path, video)

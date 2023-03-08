@@ -4,8 +4,9 @@ import torch.nn as nn
 from torch import autograd
 import numpy
 from torchvision import transforms
-import torchgeometry as tgm
-
+#import torchgeometry as tgm
+from kornia.geometry import transform as tgm
+import torchgeometry
 
 
     
@@ -44,7 +45,7 @@ def gaussian_blur(image,kernel_size=(11,11),sigma=(10.5, 10.5),cuda=True):
   # :param kernel_size (Tuple[int, int]): the size of the kernel
   # :param sigma (Tuple[float, float]): the standard deviation of the kernel
 
-  gauss = tgm.image.GaussianBlur(kernel_size, sigma)
+  gauss = torchgeometry.image.GaussianBlur(kernel_size, sigma)
 
   # blur the image
   img_blur = gauss(image)
