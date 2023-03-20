@@ -3,3 +3,10 @@
 *.pyc
 *sanity.py
 *.DS_Store
+*.avi
+*.json
+*.zip
+*.png
+*.mp4
+*.p
+*.h5

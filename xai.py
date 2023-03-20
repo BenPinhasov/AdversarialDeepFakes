@@ -103,93 +103,136 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
     return int(prediction), output
 
 
+def image_to_display(img, label=None):
+    img -= img.min()
+    img /= img.max()
+    img = (img * 255).squeeze().T.cpu().detach().numpy()  # get normalized
+    img = np.swapaxes(img, 1, 0).astype(dtype=np.uint8)
+    if label:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        org = (5, 15)
+        fontScale = 0.5
+        color = (255, 255, 255)
+        thickness = 1
+        img = cv2.putText(img.copy(), f'Classification: {label}', org, font,
+                          fontScale, color, thickness, cv2.LINE_AA)
+    return img
+
+
+def display_images(xai_image, face):
+    rows_rgb, cols_rgb, channels = face.shape
+    rows_gray, cols_gray = xai_image.shape
+
+    rows_comb = max(rows_rgb, rows_gray)
+    cols_comb = cols_rgb + cols_gray
+    comb = np.zeros(shape=(rows_comb, cols_comb, channels), dtype=np.uint8)
+
+    comb[:rows_rgb, :cols_rgb] = face
+    comb[:rows_gray, cols_rgb:] = xai_image[:, :, None]
+
+    cv2.imshow('xai_wb', comb)
+    cv2.waitKey(1)
+    return comb
+
+
 def main():
-    video_path = 'Data/Zelensky_deepfake.mp4'
+    video_path = 'temadv/Zelensky_deepfake_adv.avi'
     model_type = 'xception'
     model_path = 'faceforensics++_models_subset/face_detection/xception/all_c23.p'
     cuda = True
-    xai_method = 'IntegratedGradients'  # IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
+    xai_method = 'Saliency'  # IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
+    xai_methods = ['GuidedBackprop', 'Saliency']
+    target = 0
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    fps = 10
 
-    # fix video path string and get video file name (video_fn)
-    video_path = video_path.replace('\\', '/') if '\\' in video_path else video_path
-    video_fn = video_path.split('/')[-1].split('.')[0] + '.avi'
+    for xai_method in xai_methods:
+        try:
+            # fix video path string and get video file name (video_fn)
+            video_path = video_path.replace('\\', '/') if '\\' in video_path else video_path
+            video_fn = video_path.split('/')[-1].split('.')[0]
+            # create video writer
+            writer = cv2.VideoWriter(video_fn + '_xai_' + xai_method + '.avi', fourcc, fps, (299, 598)[::-1])
+            # create frame reader
+            reader = cv2.VideoCapture(video_path)
 
-    # create frame reader
-    reader = cv2.VideoCapture(video_path)
+            # create face detector
+            face_detector = dlib.get_frontal_face_detector()
 
-    # create face detector
-    face_detector = dlib.get_frontal_face_detector()
-
-    # load model
-    if model_path is not None:
-        if not cuda:
-            model = torch.load(model_path, map_location="cpu")
-        else:
-            if model_type == 'meso':
-                model = model_selection(model_type, 2)[0]
-                weights = torch.load(model_path)
-                model.load_state_dict(weights)
-            elif model_type == 'xception':
-                model = torch.load(model_path)
+            # load model
+            if model_path is not None:
+                if not cuda:
+                    model = torch.load(model_path, map_location="cpu")
+                else:
+                    if model_type == 'meso':
+                        model = model_selection(model_type, 2)[0]
+                        weights = torch.load(model_path)
+                        model.load_state_dict(weights)
+                    elif model_type == 'xception':
+                        model = torch.load(model_path)
+                    else:
+                        raise f"{model_type} not supported"
+                print('Model found in {}'.format(model_path))
             else:
-                raise f"{model_type} not supported"
-        print('Model found in {}'.format(model_path))
-    else:
-        raise 'No model found'
-    if cuda:
-        print("Converting mode to cuda")
-        model = model.cuda()
-        for param in model.parameters():
-            param.requires_grad = True
-        print("Converted to cuda")
+                raise 'No model found'
+            if cuda:
+                print("Converting mode to cuda")
+                model = model.cuda()
+                for param in model.parameters():
+                    param.requires_grad = True
+                print("Converted to cuda")
 
-    # create xai
-    if xai_method == 'IntegratedGradients':
-        xai = IntegratedGradients(model)
-    elif xai_method == 'InputXGradient':
-        xai = InputXGradient(model)
-    elif xai_method == 'GuidedBackprop':
-        xai = GuidedBackprop(model)
-    elif xai_method == 'Saliency':
-        xai = Saliency(model)
-    else:
-        raise 'No xai method chosen'
-    while reader.isOpened():
-        ret, image = reader.read()
-        if not ret:
-            break
-        # get image size
-        height, width = image.shape[:2]
-        # detect face
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        faces = face_detector(gray, 1)
-        if len(faces):
-            # take only the biggest face
-            face = faces[0]
-            x, y, size = get_boundingbox(face, width, height)
-            cropped_face = image[y:y + size, x:x + size, :]
-            cv2.imshow('', cropped_face)
-            cv2.waitKey(1)
-            preprocessed_image = preprocess_image(cropped_face, model_type, cuda)
+            # create xai
             if xai_method == 'IntegratedGradients':
-                xai_img = xai.attribute(preprocessed_image, target=1, internal_batch_size=1)
+                xai = IntegratedGradients(model)
+            elif xai_method == 'InputXGradient':
+                xai = InputXGradient(model)
+            elif xai_method == 'GuidedBackprop':
+                xai = GuidedBackprop(model)
+            elif xai_method == 'Saliency':
+                xai = Saliency(model)
             else:
-                xai_img = xai.attribute(preprocessed_image, target=1)
+                raise 'No xai method chosen'
+            while reader.isOpened():
+                ret, image = reader.read()
+                if not ret:
+                    break
+                # get image size
+                height, width = image.shape[:2]
+                # detect face
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                faces = face_detector(gray, 1)
+                if len(faces):
+                    # take only the biggest face
+                    face = faces[0]
+                    x, y, size = get_boundingbox(face, width, height)
+                    cropped_face = image[y:y + size, x:x + size, :]
 
-            xai_img -= xai_img.min()
-            xai_img /= xai_img.max()
-            xai_img = (xai_img * 255).squeeze().T.cpu().detach().numpy()  # get normalized
-            xai_img = np.swapaxes(xai_img, 1, 0).astype(dtype=np.uint8)
+                    preprocessed_image = preprocess_image(cropped_face, model_type, cuda)
 
-            xai_gray = cv2.cvtColor(xai_img, cv2.COLOR_BGR2GRAY)
-            (thresh, blackAndWhiteImage) = cv2.threshold(xai_gray, 127, 255, cv2.THRESH_BINARY)
-            cv2.imshow('xai_wb', blackAndWhiteImage)
-            cv2.waitKey(1)
-            # plt.imshow(xai_img, cmap='jet')
-            # plt.show()
-            # plt.imshow(blackAndWhiteImage)
-            # plt.show()
+                    output = model(preprocessed_image)
+                    _, prediction = torch.max(output, 1)
+                    prediction = int(prediction.cpu().numpy())
+                    label = 'fake' if prediction == 1 else 'real'
+
+                    face_to_disp = image_to_display(preprocessed_image, label)
+
+                    if xai_method == 'IntegratedGradients':
+                        xai_img = xai.attribute(preprocessed_image, target=target, internal_batch_size=1)
+                    else:
+                        xai_img = xai.attribute(preprocessed_image, target=target)
+
+                    xai_img = image_to_display(xai_img)
+
+                    xai_gray = cv2.cvtColor(xai_img, cv2.COLOR_BGR2GRAY)
+                    (thresh, blackAndWhiteImage) = cv2.threshold(xai_gray, 127, 255, cv2.THRESH_BINARY)
+
+                    comb_image = display_images(blackAndWhiteImage, cv2.cvtColor(face_to_disp, cv2.COLOR_RGB2BGR))
+                    writer.write(comb_image)
+                    pass
+        except:
             pass
+        writer.release()
     pass
 
 

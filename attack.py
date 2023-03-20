@@ -30,6 +30,7 @@ import json
 
 # I don't recommend this, but I like clean terminal output.
 import warnings
+
 warnings.filterwarnings("ignore")
 
 
@@ -63,7 +64,7 @@ def get_boundingbox(face, width, height, scale=1.3, minsize=None):
     return x1, y1, size_bb
 
 
-def preprocess_image(image, model_type, cuda=True, legacy = False):
+def preprocess_image(image, model_type, cuda=True, legacy=False):
     """
     Preprocesses the image such that it can be fed into our network.
     During this process we envoke PIL to cast it into a PIL image.
@@ -88,7 +89,7 @@ def preprocess_image(image, model_type, cuda=True, legacy = False):
             preprocess = mesonet_default_data_transforms['test']
 
     preprocessed_image = preprocess(pil_image.fromarray(image))
-    
+
     # Add first dimension as the network expects a batch
     preprocessed_image = preprocessed_image.unsqueeze(0)
     if cuda:
@@ -98,12 +99,11 @@ def preprocess_image(image, model_type, cuda=True, legacy = False):
     return preprocessed_image
 
 
-
 def un_preprocess_image(image, size):
     """
     Tensor to PIL image and RGB to BGR
     """
-    
+
     image.detach()
     new_image = image.squeeze(0)
     new_image = new_image.detach().cpu()
@@ -118,9 +118,10 @@ def un_preprocess_image(image, size):
     new_image = cv2.cvtColor(new_image, cv2.COLOR_RGB2BGR)
 
     return new_image
-    
+
+
 def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax(dim=1),
-                       cuda=True):
+                              cuda=True):
     """
     Predicts the label of an input image. Preprocesses the input image and
     casts it to cuda if required
@@ -132,22 +133,22 @@ def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax
     :return: prediction (1 = fake, 0 = real)
     """
     # Preprocess
-    preprocessed_image = preprocess_image(image, model_type, cuda, legacy = True)
+    preprocessed_image = preprocess_image(image, model_type, cuda, legacy=True)
 
     # Model prediction
     output = model(preprocessed_image)
     output = post_function(output)
 
     # Cast to desired
-    _, prediction = torch.max(output, 1)    # argmax
+    _, prediction = torch.max(output, 1)  # argmax
     prediction = float(prediction.cpu().numpy())
 
     return int(prediction), output
 
 
 def create_adversarial_video(video_path, model_path, model_type, output_path,
-                            start_frame=0, end_frame=None, attack="iterative_fgsm", 
-                            compress = True, cuda=True, showlabel = True):
+                             start_frame=0, end_frame=None, attack="iterative_fgsm",
+                             compress=True, cuda=True, showlabel=True):
     """
     Reads a video and evaluates a subset of frames with the a detection network
     that takes in a full frame. Outputs are only given if a face is present
@@ -166,13 +167,13 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
     reader = cv2.VideoCapture(video_path)
 
     video_path = video_path.replace('\\', '/') if '\\' in video_path else video_path
-    video_fn = video_path.split('/')[-1].split('.')[0]+'.avi'
+    video_fn = video_path.split('/')[-1].split('.')[0] + '.avi'
     os.makedirs(output_path, exist_ok=True)
 
     if compress:
         fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     else:
-        fourcc = cv2.VideoWriter_fourcc(*'HFYU') # Chnaged to HFYU because it is lossless
+        fourcc = cv2.VideoWriter_fourcc(*'HFYU')  # Chnaged to HFYU because it is lossless
 
     fps = reader.get(cv2.CAP_PROP_FPS)
     num_frames = int(reader.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -184,7 +185,7 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
     # Load model
     if model_path is not None:
         if not cuda:
-            model = torch.load(model_path, map_location = "cpu")
+            model = torch.load(model_path, map_location="cpu")
         else:
             if model_type == 'meso':
                 model = model_selection(model_type, 2)[0]
@@ -214,15 +215,15 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
     frame_num = 0
     assert start_frame < num_frames - 1
     end_frame = end_frame if end_frame else num_frames
-    pbar = tqdm(total=end_frame-start_frame)
+    pbar = tqdm(total=end_frame - start_frame)
 
     metrics = {
-        'total_fake_frames' : 0,
-        'total_real_frames' : 0,
-        'total_frames' : 0,
-        'percent_fake_frames' : 0,
-        'probs_list' : [],
-        'attack_meta_data' : [],
+        'total_fake_frames': 0,
+        'total_real_frames': 0,
+        'total_frames': 0,
+        'percent_fake_frames': 0,
+        'probs_list': [],
+        'attack_meta_data': [],
     }
 
     while reader.isOpened():
@@ -256,43 +257,47 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
             # --- Prediction ---------------------------------------------------
             # Face crop with dlib and bounding box scale enlargement
             x, y, size = get_boundingbox(face, width, height)
-            cropped_face = image[y:y+size, x:x+size]
+            cropped_face = image[y:y + size, x:x + size]
 
-            
-            processed_image = preprocess_image(cropped_face, model_type, cuda = cuda)
-            
+            processed_image = preprocess_image(cropped_face, model_type, cuda=cuda)
+
             # Attack happening here
 
             # white-box attacks
             if attack == "iterative_fgsm":
-                perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image, model, model_type, cuda)
+                perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image, model, model_type,
+                                                                                cuda)
             elif attack == "robust":
                 perturbed_image, attack_meta_data = attack_algos.robust_fgsm(processed_image, model, model_type, cuda)
             elif attack == "carlini_wagner":
-                perturbed_image, attack_meta_data = attack_algos.carlini_wagner_attack(processed_image, model_type, model, cuda)
+                perturbed_image, attack_meta_data = attack_algos.carlini_wagner_attack(processed_image, model_type,
+                                                                                       model, cuda)
 
             # black-box attacks
             elif attack == "black_box":
-                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model, model_type, 
-                    cuda, transform_set={}, desired_acc = 0.999999)
+                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model, model_type,
+                                                                                  cuda, transform_set={},
+                                                                                  desired_acc=0.999999)
             elif attack == "black_box_robust":
-                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model, 
-                    model_type, cuda, transform_set = {"gauss_blur", "translation", "resize"})
-            
+                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model,
+                                                                                  model_type, cuda,
+                                                                                  transform_set={"gauss_blur",
+                                                                                                 "translation",
+                                                                                                 "resize"})
+
             # Undo the processing of xceptionnet, mesonet
             unpreprocessed_image = un_preprocess_image(perturbed_image, size)
-            image[y:y+size, x:x+size] = unpreprocessed_image
-            
+            image[y:y + size, x:x + size] = unpreprocessed_image
 
-            cropped_face = image[y:y+size, x:x+size]
-            processed_image = preprocess_image(cropped_face, model_type, cuda = cuda)
+            cropped_face = image[y:y + size, x:x + size]
+            processed_image = preprocess_image(cropped_face, model_type, cuda=cuda)
             prediction, output, logits = attack_algos.predict_with_model(processed_image, model, model_type, cuda=cuda)
 
-            print (">>>>Prediction for frame no. {}: {}".format(frame_num ,output))
+            print(">>>>Prediction for frame no. {}: {}".format(frame_num, output))
 
             prediction, output = predict_with_model_legacy(cropped_face, model, model_type, cuda=cuda)
 
-            print (">>>>Prediction LEGACY for frame no. {}: {}".format(frame_num ,output))
+            print(">>>>Prediction LEGACY for frame no. {}: {}".format(frame_num, output))
 
             label = 'fake' if prediction == 1 else 'real'
             if label == 'fake':
@@ -316,7 +321,7 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
                 output_list = ['{0:.2f}'.format(float(x)) for x in
                                output.detach().cpu().numpy()[0]]
 
-                cv2.putText(image, str(output_list)+'=>'+label, (x, y+h+30),
+                cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
                             font_face, font_scale,
                             color, thickness, 2)
                 # draw box over face
@@ -328,7 +333,7 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
         writer.write(image)
     pbar.close()
 
-    metrics['percent_fake_frames'] = metrics['total_fake_frames']/metrics['total_frames']
+    metrics['percent_fake_frames'] = metrics['total_fake_frames'] / metrics['total_frames']
 
     with open(join(output_path, video_fn.replace(".avi", "_metrics_attack.json")), "w") as f:
         f.write(json.dumps(metrics))
@@ -343,9 +348,11 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
 def blockPrint():
     sys.stdout = open(os.devnull, 'w')
 
+
 # Restore
 def enablePrint():
     sys.stdout = sys.__stdout__
+
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(
@@ -360,7 +367,7 @@ if __name__ == '__main__':
     p.add_argument('--attack', '-a', type=str, default="iterative_fgsm")
     p.add_argument('--compress', action='store_true')
     p.add_argument('--cuda', action='store_true')
-    p.add_argument('--showlabel', action='store_true') # add face labels in the generated video
+    p.add_argument('--showlabel', action='store_true')  # add face labels in the generated video
 
     args = p.parse_args()
 
