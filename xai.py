@@ -103,18 +103,18 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
     return int(prediction), output
 
 
-def image_to_display(img, label=None):
+def image_to_display(img, label=None, confidence=None):
     img -= img.min()
     img /= img.max()
     img = (img * 255).squeeze().T.cpu().detach().numpy()  # get normalized
     img = np.swapaxes(img, 1, 0).astype(dtype=np.uint8)
-    if label:
+    if label and confidence:
         font = cv2.FONT_HERSHEY_SIMPLEX
         org = (5, 15)
         fontScale = 0.5
         color = (255, 255, 255)
         thickness = 1
-        img = cv2.putText(img.copy(), f'Classification: {label}', org, font,
+        img = cv2.putText(img.copy(), f'Classification: {label} {round(confidence, 3)}', org, font,
                           fontScale, color, thickness, cv2.LINE_AA)
     return img
 
@@ -136,12 +136,13 @@ def display_images(xai_image, face):
 
 
 def main():
-    video_path = 'temadv/Zelensky_deepfake_adv.avi'
+    video_path = 'Data/Trump_Deepfake.mp4'
     model_type = 'xception'
     model_path = 'faceforensics++_models_subset/face_detection/xception/all_c23.p'
     cuda = True
     xai_method = 'Saliency'  # IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
-    xai_methods = ['GuidedBackprop', 'Saliency']
+    # xai_methods = ['GuidedBackprop', 'Saliency']
+    xai_methods = ['IntegratedGradients']
     target = 0
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     fps = 10
@@ -211,11 +212,13 @@ def main():
                     preprocessed_image = preprocess_image(cropped_face, model_type, cuda)
 
                     output = model(preprocessed_image)
-                    _, prediction = torch.max(output, 1)
-                    prediction = int(prediction.cpu().numpy())
-                    label = 'fake' if prediction == 1 else 'real'
+                    output = nn.Softmax(dim=1)(output)
+                    confidence, prediction = torch.max(output, 1)
+                    confidence = float(confidence[0])
+                    pred = int(prediction.cpu().numpy())
+                    label = 'fake' if pred == 1 else 'real'
 
-                    face_to_disp = image_to_display(preprocessed_image, label)
+                    face_to_disp = image_to_display(preprocessed_image, label, confidence)
 
                     if xai_method == 'IntegratedGradients':
                         xai_img = xai.attribute(preprocessed_image, target=target, internal_batch_size=1)
