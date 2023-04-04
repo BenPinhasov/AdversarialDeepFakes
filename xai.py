@@ -2,6 +2,7 @@ import cv2
 
 from network.models import model_selection
 from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import dlib
 import torch
 
@@ -12,7 +13,7 @@ import sys
 from PIL import Image as pil_image
 import json
 from network.models import model_selection
-from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
+from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Saliency, visualization
 from matplotlib import pyplot as plt
 import numpy as np
 
@@ -103,16 +104,23 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
     return int(prediction), output
 
 
+def tensor_to_numpy(tensor):
+    img = tensor.squeeze().T.cpu().detach().numpy()  # get normalized
+    img = np.swapaxes(img, 1, 0)
+    return img
+
+
 def image_to_display(img, label=None, confidence=None):
-    img -= img.min()
-    img /= img.max()
-    img = (img * 255).squeeze().T.cpu().detach().numpy()  # get normalized
-    img = np.swapaxes(img, 1, 0).astype(dtype=np.uint8)
+    # img -= img.min()
+    # img /= img.max()
+    # img = (img * 255).squeeze().T.cpu().detach().numpy()  # get normalized
+    # img = np.swapaxes(img, 1, 0).astype(dtype=np.uint8)
+    # img = tensor_to_numpy(img).astype(dtype=np.uint8) * 255
     if label and confidence:
         font = cv2.FONT_HERSHEY_SIMPLEX
         org = (5, 15)
         fontScale = 0.5
-        color = (255, 255, 255)
+        color = (0, 0, 0)
         thickness = 1
         img = cv2.putText(img.copy(), f'Classification: {label} {round(confidence, 3)}', org, font,
                           fontScale, color, thickness, cv2.LINE_AA)
@@ -121,14 +129,14 @@ def image_to_display(img, label=None, confidence=None):
 
 def display_images(xai_image, face):
     rows_rgb, cols_rgb, channels = face.shape
-    rows_gray, cols_gray = xai_image.shape
+    rows_gray, cols_gray, _ = xai_image.shape
 
     rows_comb = max(rows_rgb, rows_gray)
     cols_comb = cols_rgb + cols_gray
     comb = np.zeros(shape=(rows_comb, cols_comb, channels), dtype=np.uint8)
 
     comb[:rows_rgb, :cols_rgb] = face
-    comb[:rows_gray, cols_rgb:] = xai_image[:, :, None]
+    comb[:rows_gray, cols_rgb:] = xai_image
 
     cv2.imshow('xai_wb', comb)
     cv2.waitKey(1)
@@ -141,8 +149,7 @@ def main():
     model_path = 'faceforensics++_models_subset/face_detection/xception/all_c23.p'
     cuda = True
     xai_method = 'Saliency'  # IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
-    # xai_methods = ['GuidedBackprop', 'Saliency']
-    xai_methods = ['IntegratedGradients']
+    xai_methods = ['GuidedBackprop', 'Saliency', 'InputXGradient', 'IntegratedGradients']
     target = 0
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     fps = 10
@@ -153,7 +160,8 @@ def main():
             video_path = video_path.replace('\\', '/') if '\\' in video_path else video_path
             video_fn = video_path.split('/')[-1].split('.')[0]
             # create video writer
-            writer = cv2.VideoWriter(video_fn + '_xai_' + xai_method + '.avi', fourcc, fps, (299, 598)[::-1])
+            # writer = cv2.VideoWriter(video_fn + '_xai_' + xai_method + '.avi', fourcc, fps, (299, 598)[::-1])
+            writer = cv2.VideoWriter(video_fn + '_xai_' + xai_method + '.avi', fourcc, fps, (600, 600)[::-1])
             # create frame reader
             reader = cv2.VideoCapture(video_path)
 
@@ -218,22 +226,38 @@ def main():
                     pred = int(prediction.cpu().numpy())
                     label = 'fake' if pred == 1 else 'real'
 
-                    face_to_disp = image_to_display(preprocessed_image, label, confidence)
-
+                    # face_to_disp = image_to_display(preprocessed_image, label, confidence)
+                    # face_to_disp = image_to_display(preprocessed_image)
+                    face_to_disp = tensor_to_numpy(preprocessed_image)
                     if xai_method == 'IntegratedGradients':
                         xai_img = xai.attribute(preprocessed_image, target=target, internal_batch_size=1)
                     else:
                         xai_img = xai.attribute(preprocessed_image, target=target)
-
-                    xai_img = image_to_display(xai_img)
-
-                    xai_gray = cv2.cvtColor(xai_img, cv2.COLOR_BGR2GRAY)
-                    (thresh, blackAndWhiteImage) = cv2.threshold(xai_gray, 127, 255, cv2.THRESH_BINARY)
-
-                    comb_image = display_images(blackAndWhiteImage, cv2.cvtColor(face_to_disp, cv2.COLOR_RGB2BGR))
-                    writer.write(comb_image)
+                    # xai_img = image_to_display(xai_img)
+                    xai_img = tensor_to_numpy(xai_img)
+                    # fig, ax = visualization.visualize_image_attr_multiple(xai_img, face_to_disp,
+                    #                                                       methods=['heat_map', 'original_image'],
+                    #                                                       signs=['absolute_value', 'absolute_value'],
+                    #                                                       show_colorbar=True)
+                    fig, ax = visualization.visualize_image_attr(xai_img, face_to_disp, method='blended_heat_map',
+                                                                 sign='absolute_value', show_colorbar=True,
+                                                                 use_pyplot=False)
+                    canvas = FigureCanvas(fig)
+                    canvas.draw()
+                    buf = canvas.buffer_rgba()
+                    img_to_disp = image_to_display(np.asarray(buf)[:,:,:3], label=label, confidence=confidence)
+                    cv2.imshow(xai_method, img_to_disp)
+                    cv2.waitKey(1)
+                    # xai_gray = cv2.cvtColor(xai_img, cv2.COLOR_BGR2GRAY)
+                    # (thresh, blackAndWhiteImage) = cv2.threshold(xai_gray, 127, 255, cv2.THRESH_BINARY)
+                    # TODO: Apply color map https://stackoverflow.com/questions/59478962/how-to-convert-a-grayscale-image-to-heatmap-image-with-python-opencv
+                    # blackAndWhiteImage = cv2.applyColorMap(xai_gray, cv2.COLORMAP_HOT)
+                    # comb_image = display_images(blackAndWhiteImage, cv2.cvtColor(face_to_disp, cv2.COLOR_RGB2BGR))
+                    writer.write(img_to_disp)
                     pass
         except:
+            import traceback
+            traceback.print_exc()
             pass
         writer.release()
     pass
