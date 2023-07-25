@@ -110,20 +110,22 @@ def tensor_to_numpy(tensor):
     return img
 
 
-def image_to_display(img, label=None, confidence=None):
+def image_to_display(img, label=None, confidence=None, target=None):
     # img -= img.min()
     # img /= img.max()
     # img = (img * 255).squeeze().T.cpu().detach().numpy()  # get normalized
     # img = np.swapaxes(img, 1, 0).astype(dtype=np.uint8)
     # img = tensor_to_numpy(img).astype(dtype=np.uint8) * 255
-    if label and confidence:
+    if label and confidence and target is not None:
         font = cv2.FONT_HERSHEY_SIMPLEX
         org = (5, 15)
         fontScale = 0.5
         color = (0, 0, 0)
         thickness = 1
-        img = cv2.putText(img.copy(), f'Classification: {label} {round(confidence, 3)}', org, font,
+        img = cv2.putText(img.copy(), f'Classification: {label} {round(confidence, 3)} XAI_target: {target}', org, font,
                           fontScale, color, thickness, cv2.LINE_AA)
+    else:
+        pass
     return img
 
 
@@ -144,13 +146,15 @@ def display_images(xai_image, face):
 
 
 def main():
-    video_path = 'Data/Trump_Deepfake.mp4'
-    model_type = 'xception'
-    model_path = 'faceforensics++_models_subset/face_detection/xception/all_c23.p'
+    # video_path = 'temadv/Zelensky_deepfake_adv.avi'
+    video_path = 'Data/Zelensky_deepfake.mp4'
+    model_type = 'meso'
+    model_path = 'faceforensics++_models_subset/face_detection/Meso/Meso4_deepfake.pkl'
     cuda = True
     xai_method = 'Saliency'  # IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
     xai_methods = ['GuidedBackprop', 'Saliency', 'InputXGradient', 'IntegratedGradients']
-    target = 0
+    # xai_methods = ['GuidedBackprop']
+    target = 1
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     fps = 10
 
@@ -161,7 +165,8 @@ def main():
             video_fn = video_path.split('/')[-1].split('.')[0]
             # create video writer
             # writer = cv2.VideoWriter(video_fn + '_xai_' + xai_method + '.avi', fourcc, fps, (299, 598)[::-1])
-            writer = cv2.VideoWriter(video_fn + '_xai_' + xai_method + '.avi', fourcc, fps, (600, 600)[::-1])
+            writer = cv2.VideoWriter(video_fn + '_xai_' + xai_method + '_target_' + str(target) + '.avi', fourcc, fps,
+                                     (600, 600)[::-1])
             # create frame reader
             reader = cv2.VideoCapture(video_path)
 
@@ -225,7 +230,6 @@ def main():
                     confidence = float(confidence[0])
                     pred = int(prediction.cpu().numpy())
                     label = 'fake' if pred == 1 else 'real'
-
                     # face_to_disp = image_to_display(preprocessed_image, label, confidence)
                     # face_to_disp = image_to_display(preprocessed_image)
                     face_to_disp = tensor_to_numpy(preprocessed_image)
@@ -245,7 +249,8 @@ def main():
                     canvas = FigureCanvas(fig)
                     canvas.draw()
                     buf = canvas.buffer_rgba()
-                    img_to_disp = image_to_display(np.asarray(buf)[:,:,:3], label=label, confidence=confidence)
+                    img_to_disp = image_to_display(np.asarray(buf)[:, :, :3], label=label, confidence=confidence,
+                                                   target=target)
                     cv2.imshow(xai_method, img_to_disp)
                     cv2.waitKey(1)
                     # xai_gray = cv2.cvtColor(xai_img, cv2.COLOR_BGR2GRAY)
