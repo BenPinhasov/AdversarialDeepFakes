@@ -66,7 +66,7 @@ Enable cuda with ```--cuda```  or see parameters with ```python attack.py -h```.
 
 Example:
 ```shell
-python detect_from_video.py -i Data/DFWebsite/Face2Face/c23/videos/183_253.mp4 -mi faceforensics++_models_subset/xception/all_c23.p -mt xception -o tempout/ --cuda
+python detect_from_video.py -i Data/DFWebsite/Face2Face/c23/videos/183_253.mp4 -mi faceforensics++_models_subset/xception/all_c23.p -mt xception -o fake_videos_detection/ --cuda
 ```
 
 ### Running an attack on video file

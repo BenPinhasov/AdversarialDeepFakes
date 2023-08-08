@@ -11,7 +11,7 @@ import pretrainedmodels
 import torch.nn as nn
 import torch.nn.functional as F
 from network.xception import xception
-from network.classifier import Meso4
+from network.classifier import Meso4, MesoInception4
 import math
 import torchvision
 
@@ -46,6 +46,7 @@ def return_pytorch04_xception(pretrained=True):
 
 def return_pytorch04_meso():
     model = Meso4()
+    # model = MesoInception4()
     return model
 
 class TransferModel(nn.Module):

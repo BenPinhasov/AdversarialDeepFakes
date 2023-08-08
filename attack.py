@@ -375,7 +375,6 @@ if __name__ == '__main__':
     if video_path.endswith('.mp4') or video_path.endswith('.avi'):
         create_adversarial_video(**vars(args))
     else:
-
         videos = os.listdir(video_path)
         pbar_global = tqdm(total=len(videos))
         for video in videos:

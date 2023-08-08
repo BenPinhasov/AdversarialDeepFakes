@@ -162,7 +162,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
         print('No model found, initializing random model.')
     if cuda:
         print("Converting mode to cuda")
-        model = model.cuda()
+        model = model.cuda().eval()
         for param in model.parameters():
             param.requires_grad = True
         print("Converted to cuda")
@@ -293,11 +293,20 @@ if __name__ == '__main__':
     if video_path.endswith('.mp4') or video_path.endswith('.avi'):
         test_full_image_network(**vars(args))
     else:
-        videos = os.listdir(video_path)
-        videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
+        # videos = os.listdir(video_path)
+        # videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
+        videos = []
+        for root, directories, files in os.walk(video_path):
+            for filename in files:
+                # Join the two strings in order to form the full filepath
+                filepath = os.path.join(root, filename)
+                # Check if it is an mp4 file
+                if filepath.endswith('.mp4') or filepath.endswith('.avi'):
+                    videos.append(filepath)
         pbar_global = tqdm(total=len(videos))
         for video in videos:
-            args.video_path = join(video_path, video)
+            # args.video_path = join(video_path, video)
+            args.video_path = video
             blockPrint()
             test_full_image_network(**vars(args))
             enablePrint()
