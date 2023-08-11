@@ -3,7 +3,7 @@ astor==0.7.1
 certifi==2018.11.29
 cffi
 cmake
-dlib
+dlib~=19.24.2
 face-recognition==1.2.3
 face-recognition-models==0.3.0
 ffmpy==0.2.2
@@ -15,12 +15,12 @@ Markdown==2.6.11
 mkl-fft
 mkl-random
 munch==2.3.2
-numpy
+numpy~=1.22.4
 nvidia-ml-py3==7.352.0
 olefile==0.46
-opencv-python
+opencv-python~=4.8.0.74
 pathlib==1.0.1
-Pillow
+Pillow~=10.0.0
 pretrainedmodels==0.7.4
 protobuf==3.6.1
 pycparser==2.19
@@ -31,3 +31,6 @@ torch==1.13.1
 torchvision==0.14.1
 tqdm==4.25.0
 torchgeometry==0.1.2
+
+pandas~=2.0.3
+kornia~=0.6.12
