@@ -16,9 +16,12 @@ import argparse
 from os.path import join
 import cv2
 import dlib
+import numpy as np
+import onnx
 import torch
 import torch.nn as nn
 from PIL import Image as pil_image
+from onnx2pytorch import ConvertModel
 from tqdm import tqdm
 
 from network.models import model_selection
@@ -80,6 +83,8 @@ def preprocess_image(image, model_type, cuda=True):
         preprocess = mesonet_default_data_transforms['test']
 
     preprocessed_image = preprocess(pil_image.fromarray(image))
+    if model_type == "meso":
+        preprocessed_image = preprocessed_image.permute((1, 2, 0)).contiguous()
     # Add first dimension as the network expects a batch
     preprocessed_image = preprocessed_image.unsqueeze(0)
     if cuda:
@@ -104,11 +109,17 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
 
     # Model prediction
     output = model(preprocessed_image)
-    output = post_function(output)
-
-    # Cast to desired
-    _, prediction = torch.max(output, 1)  # argmax
-    prediction = float(prediction.cpu().numpy())
+    if model_type == "meso":
+        real_pred = output[0][0].item()
+        fake_pred = 1 - real_pred
+        output = np.array([real_pred, fake_pred])
+        prediction = float(np.argmax(output))
+    elif model_type == 'xception':
+        output = post_function(output)
+        # Cast to desired
+        _, prediction = torch.max(output, 1)  # argmax
+        output = output.detach().cpu().numpy().tolist()
+        prediction = float(prediction.cpu().numpy())
 
     return int(prediction), output
 
@@ -151,9 +162,8 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
             model = torch.load(model_path, map_location="cpu")
         else:
             if model_type == 'meso':
-                model = model_selection(model_type, 2)[0]
-                weights = torch.load(model_path)
-                model.load_state_dict(weights)
+                onnx_model = onnx.load(model_path)
+                model = ConvertModel(onnx_model)
             elif model_type == 'xception':
                 model = torch.load(model_path)
             else:
@@ -236,11 +246,11 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
                 metrics['total_real_frames'] += 1.
 
             metrics['total_frames'] += 1.
-            metrics['probs_list'].append(output[0].detach().cpu().numpy().tolist())
+            metrics['probs_list'].append(output)
 
             color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
             output_list = ['{0:.2f}'.format(float(x)) for x in
-                           output.detach().cpu().numpy()[0]]
+                           output]
             cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
                         font_face, font_scale,
                         color, thickness, 2)
