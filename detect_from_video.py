@@ -173,7 +173,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
         print('No model found, initializing random model.')
     if cuda:
         print("Converting mode to cuda")
-        model = model.cuda().eval()
+        model = model.cuda()
         for param in model.parameters():
             param.requires_grad = True
         print("Converted to cuda")
