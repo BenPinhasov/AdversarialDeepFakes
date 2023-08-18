@@ -112,7 +112,7 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
     if model_type == "meso":
         real_pred = output[0][0].item()
         fake_pred = 1 - real_pred
-        output = np.array([real_pred, fake_pred])
+        output = np.array([real_pred, fake_pred]).tolist()
         prediction = float(np.argmax(output))
     elif model_type == 'xception':
         output = post_function(output)
