@@ -1,3 +1,4 @@
+import argparse
 import json
 import glob
 import os
@@ -10,7 +11,7 @@ def summarize_videos(work_dir=None, majority_vote_threshold=0.5, groundtruth_cla
     table_columns = ['file_name', 'detection_model', 'total_fake_frames', 'total_real_frames', 'percent_fake_frame',
                      'percent_real_frame', 'detector_classification', 'ground_truth_classification']
     summery_table = pd.DataFrame(columns=table_columns)
-    fake_real_path = 'detection_videos/'
+    fake_real_path = ''
     models_names = ['mesoNet', 'xception']
     row = dict.fromkeys(table_columns, None)
     for model_name in models_names:
@@ -36,9 +37,10 @@ def summarize_videos(work_dir=None, majority_vote_threshold=0.5, groundtruth_cla
 
 
 def summarize_frames(work_dir=None, groundtruth_classification=None):
-    table_columns = ['file_name', 'frame_id', 'detection_model', 'detector_classification', 'ground_truth_classification',
+    table_columns = ['file_name', 'frame_id', 'detection_model', 'detector_classification',
+                     'ground_truth_classification',
                      'percent_real', 'percent_fake']
-    fake_real_path = 'detection_videos/'
+    fake_real_path = ''
     models_names = ['mesoNet', 'xception']
     row = dict.fromkeys(table_columns, None)
     summery_table_row_list = []
@@ -87,6 +89,8 @@ def calc_videos_stats(df, model_name=None):
                   "total_real_videos": total_real_vids
                   }
     return pd.Series(data=total_dict)
+
+
 def calc_frames_stats(df, model_name=None):
     assert model_name is not None, "must input model name"
     model_rows = df.loc[df.detection_model == model_name]
@@ -94,8 +98,8 @@ def calc_frames_stats(df, model_name=None):
     mean_fake_frame_percent = model_rows.percent_fake.mean()
     fake_count = (model_rows.detector_classification == 'fake').sum()
     real_count = (model_rows.detector_classification == 'real').sum()
-    model_precision_real = real_count/len(model_rows)
-    model_precision_fake = fake_count/len(model_rows)
+    model_precision_real = real_count / len(model_rows)
+    model_precision_fake = fake_count / len(model_rows)
 
     total_dict = {"mean_real_frame_percent": mean_real_frame_percent,
                   "mean_fake_frame_percent": mean_fake_frame_percent,
@@ -109,17 +113,33 @@ def calc_frames_stats(df, model_name=None):
 
 if __name__ == '__main__':
     # real videos subset
-    work_dir = '/media/linuxu/150b6498-cf67-4ecf-a12d-c66348446ad1/C23/subset_original_videos/'
-    real_videos_dataset_summ, real_videos_stats = summarize_videos(work_dir=work_dir, majority_vote_threshold=0.5,
-                                         groundtruth_classification='real')
-    real_frames_dataset_summ, real_frames_stats = summarize_frames(work_dir=work_dir, groundtruth_classification='real')
+    p = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument('--real_data_path', type=str)
+    p.add_argument('--fake_data_path', type=str)
+    p.add_argument('--attacked_data_path', type=str)
+    args = p.parse_args()
+    real_data_path = args.real_data_path
+    fake_data_path = args.fake_data_path
+    attacked_data_path = args.attacked_data_path
+
+    real_videos_dataset_summ, real_videos_stats = summarize_videos(work_dir=real_data_path, majority_vote_threshold=0.5,
+                                                                   groundtruth_classification='real')
+    real_frames_dataset_summ, real_frames_stats = summarize_frames(work_dir=real_data_path,
+                                                                   groundtruth_classification='real')
 
     # deepfake videos subset
-    work_dir = '/media/linuxu/150b6498-cf67-4ecf-a12d-c66348446ad1/C23/subset_manipulated_deepfake_videos/'
-    fake_videos_dataset_summ, fake_videos_stats = summarize_videos(work_dir=work_dir, majority_vote_threshold=0.5,
-                                         groundtruth_classification='fake')
-    fake_frames_dataset_summ, fake_frames_stats = summarize_frames(work_dir=work_dir, groundtruth_classification='fake')
+    fake_frames_dataset_summ, fake_frames_stats = summarize_frames(work_dir=fake_data_path,
+                                                                   groundtruth_classification='fake')
+    fake_videos_dataset_summ, fake_videos_stats = summarize_videos(work_dir=fake_data_path, majority_vote_threshold=0.5,
+                                                                   groundtruth_classification='fake')
 
+    # attacked videos subset
+    attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames(work_dir=attacked_data_path,
+                                                                           groundtruth_classification='fake')
+    attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos(work_dir=attacked_data_path,
+                                                                           majority_vote_threshold=0.5,
+                                                                           groundtruth_classification='fake')
 
     print("============Real Videos Dataset stats============")
     print("=====Xception=====")
@@ -150,4 +170,37 @@ if __name__ == '__main__':
     print("\n")
     print("=====MesoNet=====")
     print(fake_frames_stats['mesoNet'])
+    print("\n\n")
+
+    print("============Real Frames Dataset stats============")
+    print("=====Xception=====")
+    print(real_frames_stats['xception'])
+    print("\n")
+    print("=====MesoNet=====")
+    print(real_frames_stats['mesoNet'])
+    print("\n")
+    print("============Fake Frames Dataset stats============")
+    print("=====Xception=====")
+    print(fake_frames_stats['xception'])
+    print("\n")
+    print("=====MesoNet=====")
+    print(fake_frames_stats['mesoNet'])
+
+    print("\n\n")
+
+    print("============Attacked Videos Dataset stats============")
+    print("=====Xception=====")
+    print(attacked_videos_stats['xception'])
+    print("\n")
+    print("=====MesoNet=====")
+    print(attacked_videos_stats['mesoNet'])
+    print("\n")
+    print("============Attacked Frames Dataset stats============")
+    print("=====Xception=====")
+    print(attacked_frames_stats['xception'])
+    print("\n")
+    print("=====MesoNet=====")
+    print(attacked_frames_stats['mesoNet'])
+
+    print("\n\n")
     pass

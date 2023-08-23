@@ -5,13 +5,12 @@ Author: Andreas Rössler
 import os
 import argparse
 
-
 import torch
 import pretrainedmodels
 import torch.nn as nn
 import torch.nn.functional as F
 from network.xception import xception
-from network.classifier import Meso4, MesoInception4
+from network.classifier import Meso4, myMeso4
 import math
 import torchvision
 
@@ -28,7 +27,7 @@ def return_pytorch04_xception(pretrained=True):
             '/home/shehzeen/AdversarialDeepFakes/xception-b5690688.pth',
             '/Users/paarthneekhara/Dev/DeepLearning/DeepFakes/xception-b5690688.pth',
             '/Users/shehzeensh/Research/Xception/xception-b5690688.pth'
-            ]
+        ]
 
         state_dict = None
         for model_path in pos_model_paths:
@@ -44,16 +43,25 @@ def return_pytorch04_xception(pretrained=True):
         del model.fc
     return model
 
+
 def return_pytorch04_meso():
     model = Meso4()
     # model = MesoInception4()
     return model
+
+
+def return_pytorch04_mymeso():
+    model = myMeso4()
+    # model = MesoInception4()
+    return model
+
 
 class TransferModel(nn.Module):
     """
     Simple transfer learning model that takes an imagenet pretrained model with
     a fc layer as base model and retrains a new fc layer for num_out_classes
     """
+
     def __init__(self, modelchoice, num_out_classes=2, dropout=0.0):
         super(TransferModel, self).__init__()
         self.modelchoice = modelchoice
@@ -140,15 +148,18 @@ def model_selection(modelname, num_out_classes,
     if modelname == 'xception':
         return TransferModel(modelchoice='xception',
                              num_out_classes=num_out_classes), 299, \
-               True, ['image'], None
+            True, ['image'], None
     elif modelname == 'resnet18':
         return TransferModel(modelchoice='resnet18', dropout=dropout,
                              num_out_classes=num_out_classes), \
-               224, True, ['image'], None
+            224, True, ['image'], None
 
     elif modelname == "meso":
         print("Returning meso model")
         return return_pytorch04_meso(), 256, False, ['image'], None
+    elif modelname == "mymeso":
+        print("Returning meso model")
+        return return_pytorch04_mymeso(), 256, False, ['image'], None
     else:
         raise NotImplementedError(modelname)
 
@@ -158,5 +169,6 @@ if __name__ == '__main__':
     print(model)
     model = model.cuda()
     from torchsummary import summary
+
     input_s = (3, image_size, image_size)
     print(summary(model, input_s))

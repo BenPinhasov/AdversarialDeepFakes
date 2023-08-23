@@ -23,6 +23,7 @@ import torch.nn as nn
 from PIL import Image as pil_image
 from onnx2pytorch import ConvertModel
 from tqdm import tqdm
+from tensorflow.keras import layers, Sequential
 
 from network.models import model_selection
 from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms
@@ -79,12 +80,23 @@ def preprocess_image(image, model_type, cuda=True):
     # casting it to PIL image
     if model_type == "xception":
         preprocess = xception_default_data_transforms['test']
-    elif model_type == "meso":
+    elif model_type == "meso" or model_type == "mymeso":
         preprocess = mesonet_default_data_transforms['test']
 
-    preprocessed_image = preprocess(pil_image.fromarray(image))
-    if model_type == "meso":
-        preprocessed_image = preprocessed_image.permute((1, 2, 0)).contiguous()
+    if model_type == 'mymeso':
+        preprocess = Sequential(
+            [
+                layers.Resizing(256, 256),
+                layers.Rescaling(1. / 255),
+            ]
+        )
+        preprocessed_image = preprocess(image).numpy()
+
+        preprocessed_image = torch.from_numpy(preprocessed_image).reshape((3, 256, 256))
+    else:
+        preprocessed_image = preprocess(pil_image.fromarray(image))
+    # if model_type == "mymeso":
+    # preprocessed_image = preprocessed_image.permute((1, 2, 0)).contiguous()
     # Add first dimension as the network expects a batch
     preprocessed_image = preprocessed_image.unsqueeze(0)
     if cuda:
@@ -109,18 +121,19 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
 
     # Model prediction
     output = model(preprocessed_image)
-    if model_type == "meso":
+    if model_type == 'mymeso':
         real_pred = output[0][0].item()
         fake_pred = 1 - real_pred
-        output = np.array([real_pred, fake_pred]).tolist()
+        output = np.array([real_pred, fake_pred])
         prediction = float(np.argmax(output))
-    elif model_type == 'xception':
+        output = output.tolist()
+    else:
         output = post_function(output)
+
         # Cast to desired
         _, prediction = torch.max(output, 1)  # argmax
-        output = output.detach().cpu().numpy().tolist()
         prediction = float(prediction.cpu().numpy())
-
+        output = output.detach().cpu().numpy().tolist()
     return int(prediction), output
 
 
@@ -162,10 +175,18 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
             model = torch.load(model_path, map_location="cpu")
         else:
             if model_type == 'meso':
-                onnx_model = onnx.load(model_path)
-                model = ConvertModel(onnx_model)
+                # onnx_model = onnx.load(model_path)
+                # model =
+                # model = ConvertModel(onnx_model)
+                model = model_selection(model_type, 2)[0]
+                weights = torch.load(model_path)
+                model.load_state_dict(weights)
             elif model_type == 'xception':
                 model = torch.load(model_path)
+            elif model_type == 'mymeso':
+                model = model_selection(model_type, 2)[0]
+                weights = torch.load(model_path)
+                model.load_state_dict(weights)
             else:
                 raise f"{model_type} not supported"
         print('Model found in {}'.format(model_path))
@@ -173,7 +194,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
         print('No model found, initializing random model.')
     if cuda:
         print("Converting mode to cuda")
-        model = model.cuda()
+        model = model.eval().cuda()
         for param in model.parameters():
             param.requires_grad = True
         print("Converted to cuda")
@@ -246,11 +267,11 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
                 metrics['total_real_frames'] += 1.
 
             metrics['total_frames'] += 1.
-            metrics['probs_list'].append(output)
+            metrics['probs_list'].append(output[0])
 
             color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
             output_list = ['{0:.2f}'.format(float(x)) for x in
-                           output]
+                           output[0]]
             cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
                         font_face, font_scale,
                         color, thickness, 2)
