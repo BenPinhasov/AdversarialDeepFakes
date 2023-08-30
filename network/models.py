@@ -13,7 +13,7 @@ from network.xception import xception
 from network.classifier import Meso4, myMeso4
 import math
 import torchvision
-
+from network.fornet import EfficientNetB4ST
 
 def return_pytorch04_xception(pretrained=True):
     # Raises warning "src not broadcastable to dst" but thats fine
@@ -160,6 +160,9 @@ def model_selection(modelname, num_out_classes,
     elif modelname == "mymeso":
         print("Returning meso model")
         return return_pytorch04_mymeso(), 256, False, ['image'], None
+    elif modelname == "EfficientNetB4ST":
+        return EfficientNetB4ST()
+
     else:
         raise NotImplementedError(modelname)
 

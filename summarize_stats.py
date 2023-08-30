@@ -2,19 +2,55 @@ import argparse
 import json
 import glob
 import os
-import time
-
 import pandas as pd
+from sklearn.metrics import roc_auc_score
+import numpy as np
 
 
-def summarize_videos(work_dir=None, majority_vote_threshold=0.5, groundtruth_classification=None):
+def find_best_threshold(work_dirs=[], models_names=[]):
+    best_threshold = None
+    best_sum_accuracy = 0
+
+    real_data_path, fake_data_path = work_dirs
+    for threshold in np.arange(0, 1, 0.01):
+        majority_vote_thresholds = [threshold, 0.5]
+        real_videos_dataset_summ, real_videos_stats = summarize_videos(work_dir=real_data_path,
+                                                                       models_names=models_names,
+                                                                       majority_vote_thresholds=majority_vote_thresholds,
+                                                                       groundtruth_classification='real')
+        fake_videos_dataset_summ, fake_videos_stats = summarize_videos(work_dir=fake_data_path,
+                                                                       models_names=models_names,
+                                                                       majority_vote_thresholds=majority_vote_thresholds,
+                                                                       groundtruth_classification='fake')
+
+        fake_acc = fake_videos_stats['mesoNet']['detector_fake_precision']
+        real_acc = real_videos_stats['mesoNet']['detector_real_precision']
+
+        sum_accuracy = fake_acc + real_acc
+
+        if sum_accuracy > best_sum_accuracy:
+            best_sum_accuracy = sum_accuracy
+            best_threshold = threshold
+
+    majority_vote_thresholds = [best_threshold, 0.5]
+    real_videos_dataset_summ, real_videos_stats = summarize_videos(work_dir=real_data_path,
+                                                                   models_names=models_names,
+                                                                   majority_vote_thresholds=majority_vote_thresholds,
+                                                                   groundtruth_classification='real')
+    fake_videos_dataset_summ, fake_videos_stats = summarize_videos(work_dir=fake_data_path,
+                                                                   models_names=models_names,
+                                                                   majority_vote_thresholds=majority_vote_thresholds,
+                                                                   groundtruth_classification='fake')
+    return best_threshold, max_acc
+
+
+def summarize_videos(work_dir=None, models_names=[], majority_vote_thresholds=[], groundtruth_classification=None):
     table_columns = ['file_name', 'detection_model', 'total_fake_frames', 'total_real_frames', 'percent_fake_frame',
                      'percent_real_frame', 'detector_classification', 'ground_truth_classification']
     summery_table = pd.DataFrame(columns=table_columns)
     fake_real_path = ''
-    models_names = ['mesoNet', 'xception']
     row = dict.fromkeys(table_columns, None)
-    for model_name in models_names:
+    for model_name, majority_vote_threshold in zip(models_names, majority_vote_thresholds):
         json_files = glob.glob(f'{work_dir + fake_real_path + model_name}/*.json')
         for json_path in json_files:
             with open(json_path) as f:
@@ -36,12 +72,11 @@ def summarize_videos(work_dir=None, majority_vote_threshold=0.5, groundtruth_cla
     return summery_table, stats
 
 
-def summarize_frames(work_dir=None, groundtruth_classification=None):
+def summarize_frames(work_dir=None, models_names=[], groundtruth_classification=None):
     table_columns = ['file_name', 'frame_id', 'detection_model', 'detector_classification',
                      'ground_truth_classification',
                      'percent_real', 'percent_fake']
     fake_real_path = ''
-    models_names = ['mesoNet', 'xception']
     row = dict.fromkeys(table_columns, None)
     summery_table_row_list = []
     for model_name in models_names:
@@ -111,6 +146,37 @@ def calc_frames_stats(df, model_name=None):
     return pd.Series(data=total_dict)
 
 
+def calculate_accuracy(df, threshold):
+    from sklearn.metrics import confusion_matrix
+    dfcopy = df.copy()
+    dfcopy.loc[dfcopy['percent_real'] < threshold, 'detector_classification'] = 0
+    dfcopy.loc[dfcopy['percent_real'] >= threshold, 'detector_classification'] = 1
+    dfcopy.loc[dfcopy['ground_truth_classification'] == 'real', 'ground_truth_classification'] = 0
+    dfcopy.loc[dfcopy['ground_truth_classification'] == 'fake', 'ground_truth_classification'] = 1
+    true_labels = dfcopy['ground_truth_classification'].to_list()
+    predicted_labels = dfcopy['detector_classification'].to_list()
+    tn, fp, fn, tp = confusion_matrix(true_labels, predicted_labels).ravel()
+    accuracy = (tn + tp) / (tn + tp + fn + tp)
+    return accuracy
+
+
+def calc_acc(table1, table2):
+    table = pd.concat([table1, table2], ignore_index=True)
+    thresholds = np.arange(0.1, 1.0, 0.01)
+
+    best_threshold = None
+    best_accuracy = 0
+
+    # Iterate through thresholds and calculate accuracy
+    for threshold in thresholds:
+        accuracy = calculate_accuracy(table, threshold)
+
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_threshold = threshold
+    return best_threshold, best_accuracy
+
+
 if __name__ == '__main__':
     # real videos subset
     p = argparse.ArgumentParser(
@@ -122,25 +188,34 @@ if __name__ == '__main__':
     real_data_path = args.real_data_path
     fake_data_path = args.fake_data_path
     attacked_data_path = args.attacked_data_path
+    models_names = ['mesoNet', 'xception', 'EfficientNetB4ST']
 
-    real_videos_dataset_summ, real_videos_stats = summarize_videos(work_dir=real_data_path, majority_vote_threshold=0.5,
+    # best_threshold, max_acc = find_best_threshold(work_dirs=[real_data_path, fake_data_path], models_names=models_names)
+
+    majority_vote_thresholds = [0.5, 0.5, 0.5]
+    real_videos_dataset_summ, real_videos_stats = summarize_videos(work_dir=real_data_path, models_names=models_names,
+                                                                   majority_vote_thresholds=majority_vote_thresholds,
                                                                    groundtruth_classification='real')
-    real_frames_dataset_summ, real_frames_stats = summarize_frames(work_dir=real_data_path,
+    real_frames_dataset_summ, real_frames_stats = summarize_frames(work_dir=real_data_path, models_names=models_names,
                                                                    groundtruth_classification='real')
 
     # deepfake videos subset
-    fake_frames_dataset_summ, fake_frames_stats = summarize_frames(work_dir=fake_data_path,
+    fake_videos_dataset_summ, fake_videos_stats = summarize_videos(work_dir=fake_data_path, models_names=models_names,
+                                                                   majority_vote_thresholds=majority_vote_thresholds,
                                                                    groundtruth_classification='fake')
-    fake_videos_dataset_summ, fake_videos_stats = summarize_videos(work_dir=fake_data_path, majority_vote_threshold=0.5,
+    fake_frames_dataset_summ, fake_frames_stats = summarize_frames(work_dir=fake_data_path, models_names=models_names,
                                                                    groundtruth_classification='fake')
 
     # attacked videos subset
     attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames(work_dir=attacked_data_path,
+                                                                           models_names=models_names,
                                                                            groundtruth_classification='fake')
     attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos(work_dir=attacked_data_path,
-                                                                           majority_vote_threshold=0.5,
+                                                                           models_names=models_names,
+                                                                           majority_vote_thresholds=majority_vote_thresholds,
                                                                            groundtruth_classification='fake')
-
+    # calc_acc(real_frames_dataset_summ.loc[real_frames_dataset_summ.detection_model == "mesoNet"],
+    #          fake_frames_dataset_summ.loc[fake_frames_dataset_summ.detection_model == "mesoNet"])
     print("============Real Videos Dataset stats============")
     print("=====Xception=====")
     print(real_videos_stats['xception'])
@@ -148,12 +223,18 @@ if __name__ == '__main__':
     print("=====MesoNet=====")
     print(real_videos_stats['mesoNet'])
     print("\n")
+    print("=====EfficientNetB4ST=====")
+    print(real_videos_stats['EfficientNetB4ST'])
+    print("\n")
     print("============Fake Videos Dataset stats============")
     print("=====Xception=====")
     print(fake_videos_stats['xception'])
     print("\n")
     print("=====MesoNet=====")
     print(fake_videos_stats['mesoNet'])
+    print("\n")
+    print("=====EfficientNetB4ST=====")
+    print(fake_videos_stats['EfficientNetB4ST'])
 
     print("\n\n")
 
@@ -164,6 +245,10 @@ if __name__ == '__main__':
     print("=====MesoNet=====")
     print(real_frames_stats['mesoNet'])
     print("\n")
+    print("=====EfficientNetB4ST=====")
+    print(real_frames_stats['EfficientNetB4ST'])
+    print("\n")
+
     print("============Fake Frames Dataset stats============")
     print("=====Xception=====")
     print(fake_frames_stats['xception'])
@@ -171,21 +256,8 @@ if __name__ == '__main__':
     print("=====MesoNet=====")
     print(fake_frames_stats['mesoNet'])
     print("\n\n")
-
-    print("============Real Frames Dataset stats============")
-    print("=====Xception=====")
-    print(real_frames_stats['xception'])
-    print("\n")
-    print("=====MesoNet=====")
-    print(real_frames_stats['mesoNet'])
-    print("\n")
-    print("============Fake Frames Dataset stats============")
-    print("=====Xception=====")
-    print(fake_frames_stats['xception'])
-    print("\n")
-    print("=====MesoNet=====")
-    print(fake_frames_stats['mesoNet'])
-
+    print("=====EfficientNetB4ST=====")
+    print(fake_frames_stats['EfficientNetB4ST'])
     print("\n\n")
 
     print("============Attacked Videos Dataset stats============")

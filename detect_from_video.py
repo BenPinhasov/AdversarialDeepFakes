@@ -24,10 +24,10 @@ from PIL import Image as pil_image
 from onnx2pytorch import ConvertModel
 from tqdm import tqdm
 from tensorflow.keras import layers, Sequential
-
 from network.models import model_selection
-from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms
+from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms, get_transformer
 import json
+from torchvision import transforms
 
 # I don't recommend this, but I like clean terminal output.
 import warnings
@@ -82,7 +82,9 @@ def preprocess_image(image, model_type, cuda=True):
         preprocess = xception_default_data_transforms['test']
     elif model_type == "meso" or model_type == "mymeso":
         preprocess = mesonet_default_data_transforms['test']
-
+    elif model_type == 'EfficientNetB4ST':
+        normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        preprocess = get_transformer('scale', 224, normalizer, train=False)
     if model_type == 'mymeso':
         preprocess = Sequential(
             [
@@ -93,6 +95,8 @@ def preprocess_image(image, model_type, cuda=True):
         preprocessed_image = preprocess(image).numpy()
 
         preprocessed_image = torch.from_numpy(preprocessed_image).reshape((3, 256, 256))
+    elif model_type == 'EfficientNetB4ST':
+        preprocessed_image = preprocess(image=image)['image']
     else:
         preprocessed_image = preprocess(pil_image.fromarray(image))
     # if model_type == "mymeso":
@@ -127,6 +131,13 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
         output = np.array([real_pred, fake_pred])
         prediction = float(np.argmax(output))
         output = output.tolist()
+    elif model_type == 'EfficientNetB4ST':
+        output = post_function(output)
+        fake_pred = output[0][0].item()
+        real_pred = 1 - fake_pred
+        output = np.array([real_pred, fake_pred])
+        prediction = float(np.argmax(output))
+        output = [output.tolist()]
     else:
         output = post_function(output)
 
@@ -171,6 +182,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
     # model, *_ = model_selection(modelname='xception', num_out_classes=2)
     # Load model
     if model_path is not None:
+        post_function = nn.Softmax(dim=1)
         if not cuda:
             model = torch.load(model_path, map_location="cpu")
         else:
@@ -187,6 +199,11 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
                 model = model_selection(model_type, 2)[0]
                 weights = torch.load(model_path)
                 model.load_state_dict(weights)
+            elif model_type == 'EfficientNetB4ST':
+                model = model_selection('EfficientNetB4ST', 2)
+                weights = torch.load(model_path)
+                model.load_state_dict(weights)
+                post_function = nn.Sigmoid()
             else:
                 raise f"{model_type} not supported"
         print('Model found in {}'.format(model_path))
@@ -249,34 +266,35 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
             cropped_face = image[y:y + size, x:x + size]
 
             # Actual prediction using our model
-            prediction, output = predict_with_model(cropped_face, model, model_type,
-                                                    cuda=cuda)
-            # ------------------------------------------------------------------
 
-            # Text and bb
-            print("Prediction", prediction, output)
-            x = face.left()
-            y = face.top()
-            w = face.right() - x
-            h = face.bottom() - y
-            label = 'fake' if prediction == 1 else 'real'
+        prediction, output = predict_with_model(cropped_face, model, model_type, post_function=post_function,
+                                                cuda=cuda)
+        # ------------------------------------------------------------------
 
-            if label == 'fake':
-                metrics['total_fake_frames'] += 1.
-            else:
-                metrics['total_real_frames'] += 1.
+        # Text and bb
+        print("Prediction", prediction, output)
+        x = face.left()
+        y = face.top()
+        w = face.right() - x
+        h = face.bottom() - y
+        label = 'fake' if prediction == 1 else 'real'
 
-            metrics['total_frames'] += 1.
-            metrics['probs_list'].append(output[0])
+        if label == 'fake':
+            metrics['total_fake_frames'] += 1.
+        else:
+            metrics['total_real_frames'] += 1.
 
-            color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
-            output_list = ['{0:.2f}'.format(float(x)) for x in
-                           output[0]]
-            cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
-                        font_face, font_scale,
-                        color, thickness, 2)
-            # draw box over face
-            cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
+        metrics['total_frames'] += 1.
+        metrics['probs_list'].append(output[0])
+
+        color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
+        output_list = ['{0:.2f}'.format(float(x)) for x in
+                       output[0]]
+        cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
+                    font_face, font_scale,
+                    color, thickness, 2)
+        # draw box over face
+        cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
 
         if frame_num >= end_frame:
             break
@@ -285,6 +303,8 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
         # cv2.imshow('test', image)
         # cv2.waitKey(33)     # About 30 fps
         writer.write(image)
+
+
     pbar.close()
     metrics['percent_fake_frames'] = metrics['total_fake_frames'] / metrics['total_frames']
 
