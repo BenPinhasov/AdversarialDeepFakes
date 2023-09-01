@@ -81,23 +81,25 @@ def summarize_frames(work_dir=None, models_names=[], groundtruth_classification=
     summery_table_row_list = []
     for model_name in models_names:
         json_files = glob.glob(f'{work_dir + fake_real_path + model_name}/*.json')
-        for json_path in json_files:
-            with open(json_path) as f:
-                file_name = os.path.basename(json_path)
-                data = json.load(f)
-                for i, frame in enumerate(data['probs_list']):
-                    row['file_name'] = file_name
-                    row["frame_id"] = i
-                    row['detection_model'] = model_name
-                    row['detector_classification'] = 'fake' if frame.index(max(frame)) == 1 else 'real'
-                    row['ground_truth_classification'] = 'fake' if 'fake' == groundtruth_classification else 'real'
-                    row['percent_real'] = frame[0]
-                    row['percent_fake'] = frame[1]
-                    summery_table_row_list.append(row.copy())
+        if json_files:
+            for json_path in json_files:
+                with open(json_path) as f:
+                    file_name = os.path.basename(json_path)
+                    data = json.load(f)
+                    for i, frame in enumerate(data['probs_list']):
+                        row['file_name'] = file_name
+                        row["frame_id"] = i
+                        row['detection_model'] = model_name
+                        row['detector_classification'] = 'fake' if frame.index(max(frame)) == 1 else 'real'
+                        row['ground_truth_classification'] = 'fake' if 'fake' == groundtruth_classification else 'real'
+                        row['percent_real'] = frame[0]
+                        row['percent_fake'] = frame[1]
+                        summery_table_row_list.append(row.copy())
     summery_table = pd.DataFrame.from_records(summery_table_row_list)
     stats = {}
     for model_name in models_names:
-        stats[model_name] = calc_frames_stats(df=summery_table, model_name=model_name)
+        if not summery_table.empty:
+            stats[model_name] = calc_frames_stats(df=summery_table, model_name=model_name)
     return summery_table, stats
 
 
@@ -264,15 +266,15 @@ if __name__ == '__main__':
     print("=====Xception=====")
     print(attacked_videos_stats['xception'])
     print("\n")
-    print("=====MesoNet=====")
-    print(attacked_videos_stats['mesoNet'])
+    print("==========EfficientNetB4ST==========")
+    print(attacked_videos_stats['=====EfficientNetB4ST====='])
     print("\n")
     print("============Attacked Frames Dataset stats============")
     print("=====Xception=====")
     print(attacked_frames_stats['xception'])
     print("\n")
-    print("=====MesoNet=====")
-    print(attacked_frames_stats['mesoNet'])
+    print("==========EfficientNetB4ST==========")
+    print(attacked_frames_stats['=====EfficientNetB4ST====='])
 
     print("\n\n")
     pass

@@ -17,11 +17,9 @@ from os.path import join
 import cv2
 import dlib
 import numpy as np
-import onnx
 import torch
 import torch.nn as nn
 from PIL import Image as pil_image
-from onnx2pytorch import ConvertModel
 from tqdm import tqdm
 from tensorflow.keras import layers, Sequential
 from network.models import model_selection

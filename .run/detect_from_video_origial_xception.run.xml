@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/detect_from_video.py" />
-    <option name="PARAMETERS" value="--video_path E:\Datasets\original_sequences\youtube\c23\videos --model_path C:\Users\Ben.pinhasov\PycharmProjects\AdversarialDeepFakes\models\all_c23.p --model_type xception --output_path E:\Datasets\original_sequences\youtube\c23\detection_videos\xception --cuda" />
+    <option name="PARAMETERS" value="--video_path Datasets\original_sequences\youtube\c23\videos --model_path models\all_c23.p --model_type xception --output_path Datasets\original_sequences\youtube\c23\detection_videos\xception --cuda" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

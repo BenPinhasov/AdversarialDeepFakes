@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/summarize_stats.py" />
-    <option name="PARAMETERS" value="--real_data_path E:\Subset\real_videos\detection_videos\ --fake_data_path E:\Subset\fake_videos\detection_videos\ --attacked_data_path E:\Subset\fake_videos\attacked_videos\" />
+    <option name="PARAMETERS" value="--real_data_path Datasets/original_sequences/youtube/c23/detection_videos/ --fake_data_path Datasets/manipulated_sequences/Deepfakes/c23/detection_videos/ --attacked_data_path Datasets/manipulated_sequences/Deepfakes/c23/attacked/" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
