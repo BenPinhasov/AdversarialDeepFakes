@@ -7,6 +7,7 @@ from albumentations.pytorch import ToTensorV2
 import albumentations as A
 import cv2
 
+
 class UnNormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -104,6 +105,32 @@ def get_transformer(face_policy: str, patch_size: int, net_normalizer: transform
     return transf
 
 
+EfficientNetB4ST_default_data_transforms = {
+    'test': transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    'to_tensor': transforms.Compose([
+        transforms.ToTensor()
+    ]),
+    'normalize': transforms.Compose([
+        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ]),
+    'unnormalize': transforms.Compose([
+        UnNormalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    #     "to_tensor": A.Compose([
+    #         A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    #         ToTensorV2()
+    #     ]),
+    #     "un_normalize": A.Compose([
+    #         A.Normalize(mean=[0, 0, 0], std=[1/0.229, 1/0.224, 1/0.225]),
+    #         A.Normalize(mean=[-0.485, -0.456, -0.406], std=[1, 1, 1]),
+    #     ])
+}
+
 xception_default_data_transforms = {
     'train': transforms.Compose([
         transforms.Resize((299, 299)),
@@ -163,17 +190,5 @@ mesonet_default_data_transforms = {
     ]),
     'unnormalize': transforms.Compose([
         UnNormalize([0.5] * 3, [0.5] * 3)
-    ])
-}
-"""
-
-Author: Ben Pinhasov
-"""
-EfficientNetB4ST_default_data_transforms = {
-    'test': transforms.Compose([
-        transforms.Resize((224, 224)),
-        ToTensorV2(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-
     ])
 }

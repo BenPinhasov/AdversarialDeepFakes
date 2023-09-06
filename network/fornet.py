@@ -216,8 +216,8 @@ class SiameseTuning(FeatureExtractor):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.lastonly:
-            with torch.no_grad():
-                x = self.features(x)
+            #with torch.no_grad():
+            x = self.features(x)
         else:
             x = self.features(x)
         x = self.classifier(x)

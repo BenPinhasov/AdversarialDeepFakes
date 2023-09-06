@@ -15,13 +15,15 @@ import argparse
 from os.path import join
 import cv2
 import dlib
+import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image as pil_image
 from tqdm import tqdm
 
 from network.models import model_selection
-from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms
+from dataset.transform import EfficientNetB4ST_default_data_transforms, xception_default_data_transforms, \
+    mesonet_default_data_transforms, get_transformer
 from torch import autograd
 import numpy
 from torchvision import transforms
@@ -31,7 +33,8 @@ import json
 # I don't recommend this, but I like clean terminal output.
 import warnings
 
-warnings.filterwarnings("ignore")
+
+# warnings.filterwarnings("ignore")
 
 
 def get_boundingbox(face, width, height, scale=1.3, minsize=None):
@@ -81,17 +84,35 @@ def preprocess_image(image, model_type, cuda=True, legacy=False):
         # only conver to tensor here, 
         # other transforms -> resize, normalize differentiable done in predict_from_model func
         # same for meso, xception
-        preprocess = xception_default_data_transforms['to_tensor']
+        if model_type == 'meso' or model_type == 'xception':
+            preprocess = xception_default_data_transforms['to_tensor']
+            preprocessed_image = preprocess(pil_image.fromarray(image))
+        elif model_type == 'EfficientNetB4ST':
+            # preprocess = EfficientNetB4ST_default_data_transforms['to_tensor']
+            # normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            # preprocess = get_transformer('scale', 224, normalizer, train=False)
+            # preprocessed_image = preprocess(image=image)['image']
+            preprocess = EfficientNetB4ST_default_data_transforms['to_tensor']
+            preprocessed_image = preprocess(pil_image.fromarray(image))
+
     else:
         if model_type == "xception":
             preprocess = xception_default_data_transforms['test']
+            preprocessed_image = preprocess(pil_image.fromarray(image))
+
         elif model_type == "meso":
             preprocess = mesonet_default_data_transforms['test']
+            preprocessed_image = preprocess(pil_image.fromarray(image))
 
-    preprocessed_image = preprocess(pil_image.fromarray(image))
+        elif model_type == 'EfficientNetB4ST':
+            # normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            # preprocess = get_transformer('scale', 224, normalizer, train=False)
+            # preprocessed_image = preprocess(image=image)['image']
+            preprocess = EfficientNetB4ST_default_data_transforms['test']
+            preprocessed_image = preprocess(pil_image.fromarray(image))
 
-    # Add first dimension as the network expects a batch
     preprocessed_image = preprocessed_image.unsqueeze(0)
+
     if cuda:
         preprocessed_image = preprocessed_image.cuda()
 
@@ -110,6 +131,7 @@ def un_preprocess_image(image, size):
 
     undo_transform = transforms.Compose([
         transforms.ToPILImage(),
+        transforms.Resize(size)
     ])
 
     new_image = undo_transform(new_image)
@@ -138,10 +160,16 @@ def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax
     # Model prediction
     output = model(preprocessed_image)
     output = post_function(output)
-
+    if model_type == 'EfficientNetB4ST':
+        fake_pred = output[0][0].item()
+        real_pred = 1 - fake_pred
+        output = np.array([real_pred, fake_pred])
+        prediction = float(np.argmax(output))
+        output = [output.tolist()]
     # Cast to desired
-    _, prediction = torch.max(output, 1)  # argmax
-    prediction = float(prediction.cpu().numpy())
+    else:
+        _, prediction = torch.max(output, 1)  # argmax
+        prediction = float(prediction.cpu().numpy())
 
     return int(prediction), output
 
@@ -193,6 +221,10 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
                 model.load_state_dict(weights)
             elif model_type == 'xception':
                 model = torch.load(model_path)
+            elif model_type == 'EfficientNetB4ST':
+                model = model_selection('EfficientNetB4ST', 2)
+                weights = torch.load(model_path)
+                model.load_state_dict(weights)
             else:
                 raise f"{model_type} not supported"
         print('Model found in {}'.format(model_path))
@@ -200,7 +232,7 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
         print('No model found, initializing random model.')
     if cuda:
         print("Converting mode to cuda")
-        model = model.cuda()
+        model = model.eval().cuda()
         for param in model.parameters():
             param.requires_grad = True
         print("Converted to cuda")
@@ -225,6 +257,11 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
         'probs_list': [],
         'attack_meta_data': [],
     }
+
+    if model_type == 'EfficientNetB4ST':
+        post_function = nn.Sigmoid()
+    else:
+        post_function = nn.Softmax(dim=1)
 
     while reader.isOpened():
         _, image = reader.read()
@@ -258,7 +295,7 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
             # Face crop with dlib and bounding box scale enlargement
             x, y, size = get_boundingbox(face, width, height)
             cropped_face = image[y:y + size, x:x + size]
-
+            original_cropped_face = cropped_face
             processed_image = preprocess_image(cropped_face, model_type, cuda=cuda)
 
             # Attack happening here
@@ -288,16 +325,27 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
             # Undo the processing of xceptionnet, mesonet
             unpreprocessed_image = un_preprocess_image(perturbed_image, size)
             image[y:y + size, x:x + size] = unpreprocessed_image
+            unpreprocessed_cropped_face = cropped_face
 
             cropped_face = image[y:y + size, x:x + size]
             processed_image = preprocess_image(cropped_face, model_type, cuda=cuda)
-            prediction, output, logits = attack_algos.predict_with_model(processed_image, model, model_type, cuda=cuda)
-
+            prediction, output, logits = attack_algos.predict_with_model(processed_image, model, model_type, cuda=cuda,
+                                                                         post_function=post_function)
+            new_classification = prediction
             print(">>>>Prediction for frame no. {}: {}".format(frame_num, output))
 
-            prediction, output = predict_with_model_legacy(cropped_face, model, model_type, cuda=cuda)
+            prediction, output = predict_with_model_legacy(cropped_face, model, model_type, cuda=cuda,
+                                                           post_function=post_function)
 
             print(">>>>Prediction LEGACY for frame no. {}: {}".format(frame_num, output))
+
+            prediction2, output2 = predict_with_model_legacy(original_cropped_face, model, model_type, cuda=cuda,
+                                                             post_function=post_function)
+            old_classification = prediction2
+            concat_crops = cv2.hconcat([original_cropped_face, unpreprocessed_image])
+            print(f'original_class: {prediction2}, new_class: {prediction}')
+            cv2.imshow('side-by-side', concat_crops)
+            cv2.waitKey(1)
 
             label = 'fake' if prediction == 1 else 'real'
             if label == 'fake':
@@ -306,7 +354,7 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
                 metrics['total_real_frames'] += 1.
 
             metrics['total_frames'] += 1.
-            metrics['probs_list'].append(output[0].detach().cpu().numpy().tolist())
+            metrics['probs_list'].append(output[0])
             metrics['attack_meta_data'].append(attack_meta_data)
 
             if showlabel:

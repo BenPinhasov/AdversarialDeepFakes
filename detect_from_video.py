@@ -23,7 +23,7 @@ from PIL import Image as pil_image
 from tqdm import tqdm
 from tensorflow.keras import layers, Sequential
 from network.models import model_selection
-from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms, get_transformer
+from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms, get_transformer, EfficientNetB4ST_default_data_transforms
 import json
 from torchvision import transforms
 
@@ -83,6 +83,7 @@ def preprocess_image(image, model_type, cuda=True):
     elif model_type == 'EfficientNetB4ST':
         normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         preprocess = get_transformer('scale', 224, normalizer, train=False)
+        preprocess = EfficientNetB4ST_default_data_transforms['test']
     if model_type == 'mymeso':
         preprocess = Sequential(
             [
@@ -94,7 +95,8 @@ def preprocess_image(image, model_type, cuda=True):
 
         preprocessed_image = torch.from_numpy(preprocessed_image).reshape((3, 256, 256))
     elif model_type == 'EfficientNetB4ST':
-        preprocessed_image = preprocess(image=image)['image']
+        # preprocessed_image = preprocess(image=image)['image']
+        preprocessed_image = preprocess(pil_image.fromarray(image))
     else:
         preprocessed_image = preprocess(pil_image.fromarray(image))
     # if model_type == "mymeso":

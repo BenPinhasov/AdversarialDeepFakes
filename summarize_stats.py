@@ -267,14 +267,14 @@ if __name__ == '__main__':
     print(attacked_videos_stats['xception'])
     print("\n")
     print("==========EfficientNetB4ST==========")
-    print(attacked_videos_stats['=====EfficientNetB4ST====='])
+    print(attacked_videos_stats['EfficientNetB4ST'])
     print("\n")
     print("============Attacked Frames Dataset stats============")
     print("=====Xception=====")
     print(attacked_frames_stats['xception'])
     print("\n")
     print("==========EfficientNetB4ST==========")
-    print(attacked_frames_stats['=====EfficientNetB4ST====='])
+    print(attacked_frames_stats['EfficientNetB4ST'])
 
     print("\n\n")
     pass
