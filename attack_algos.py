@@ -53,6 +53,7 @@ def predict_with_model(preprocessed_image, model, model_type, post_function=nn.S
         # Cast to desired
         _, prediction = torch.max(output, 1)  # argmax
         prediction = float(prediction.cpu().numpy())
+        output = output.detach().cpu().numpy().tolist()
     # print ("prediction", prediction)
     # print ("output", output)
     return int(prediction), output, logits

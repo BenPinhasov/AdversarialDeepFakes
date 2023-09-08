@@ -81,8 +81,8 @@ def preprocess_image(image, model_type, cuda=True):
     elif model_type == "meso" or model_type == "mymeso":
         preprocess = mesonet_default_data_transforms['test']
     elif model_type == 'EfficientNetB4ST':
-        normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        preprocess = get_transformer('scale', 224, normalizer, train=False)
+        # normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        # preprocess = get_transformer('scale', 224, normalizer, train=False)
         preprocess = EfficientNetB4ST_default_data_transforms['test']
     if model_type == 'mymeso':
         preprocess = Sequential(
