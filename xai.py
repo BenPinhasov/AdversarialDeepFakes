@@ -120,7 +120,8 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
     for xai_method in xai_methods:
         os.makedirs(output_path + f'/{xai_method}', exist_ok=True)
         xai[xai_method] = eval(f'{xai_method}')(model)
-        writers[xai_method] = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps, writer_dim)
+        if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
+            writers[xai_method] = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps, writer_dim)
         xai_metrics[xai_method] = {
             'total_frames': 0,
             'total_fake_predictions': [],
@@ -128,7 +129,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             'prediction_list': [],
             'probs_list': []
         }
-
+    break_flag = False
     while reader.isOpened():
         ret, image = reader.read()
         if not ret:
@@ -149,7 +150,13 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         preprocessed_image = preprocess_image(cropped_face, model_type)
         prediction, output = predict_with_model(cropped_face, model, model_type, post_function=post_function, cuda=cuda)
         for xai_method in xai_methods:
-
+            if os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
+                print(f'metric file for {video_fn} exists. continue')
+                reader.release()
+                break_flag = True
+                continue
+            if break_flag:
+                break
             if xai_method == 'IntegratedGradients':
                 xai_img = xai[xai_method].attribute(preprocessed_image, target=prediction, internal_batch_size=1)
             else:
@@ -166,10 +173,11 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         len_predictions = len(xai_metrics[xai_method]['prediction_list'])
         xai_metrics[xai_method]['total_fake_predictions'] = sum_of_fakes
         xai_metrics[xai_method]['total_real_predictions'] = len_predictions - sum_of_fakes
-        with open(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json")), "w") as f:
-            f.write(json.dumps(xai_metrics[xai_method]))
-        writers[xai_method].release()
-        print(f'Finished! Output saved under {os.path.join(output_path, xai_method)}')
+        if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
+            with open(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json")), "w") as f:
+                f.write(json.dumps(xai_metrics[xai_method]))
+            print(f'Finished! Output saved under {os.path.join(output_path, xai_method)}')
+            writers[xai_method].release()
 
 
 def main():
