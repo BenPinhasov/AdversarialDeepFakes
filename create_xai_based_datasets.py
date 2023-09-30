@@ -25,11 +25,6 @@ def find_face(image, face_detector, resize):
 
 
 def main(video_path, model_type, videos_type, output_path, xai_methods):
-    # xai_methods = ['GuidedBackprop', 'Saliency', 'InputXGradient', 'IntegratedGradients']
-    # video_path = 'Datasets/manipulated_sequences/Deepfakes/c23/videos/'
-    # output_path = 'Datasets/dataset_resent50/'
-    # model_type = 'EfficientNetB4ST'
-    # videos_type = 'fake'
     if model_type == 'EfficientNetB4ST':
         frame_size = 224
     elif model_type == 'xception':
@@ -75,8 +70,11 @@ def main(video_path, model_type, videos_type, output_path, xai_methods):
                 vid_resized_frame = find_face(vid_frame, face_detector, frame_size)
                 if vid_resized_frame is None:
                     continue
-                combined_frame = np.add(vid_resized_frame, xai_vid_frame, dtype=np.uint16)
-                np.save(f'{output_dir}{video_fn}_{frame_id}.npy', combined_frame)
+                cv2.imwrite(filename=f'{output_dir}{video_fn}_{frame_id}.jpg', img=vid_resized_frame)
+                cv2.imwrite(filename=f'{output_dir}{video_fn}_{frame_id}_xai.jpg', img=xai_vid_frame)
+                # combined_frame = np.add(vid_resized_frame, xai_vid_frame, dtype=np.uint16)
+                # np.save(f'{output_dir}{video_fn}_{frame_id}.npy', combined_frame)
+
                 frame_id += 1
             pass
             pbar.close()

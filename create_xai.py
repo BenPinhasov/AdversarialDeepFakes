@@ -17,7 +17,7 @@ from PIL import Image as pil_image
 import json
 from network.models import model_selection
 from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Saliency, visualization
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, cm
 import numpy as np
 from attack import un_preprocess_image
 
@@ -95,6 +95,13 @@ def load_model(model_type: str, model_path: str, cuda: bool):
     return model, post_function
 
 
+def to_gray_image(x):
+    x -= x.min()
+    x /= x.max() + np.spacing(1)
+    x *= 255
+    return np.array(x, dtype=np.uint8)
+
+
 def compute_attr(video_path, model_path, model_type, output_path, xai_methods, cuda):
     reader = cv2.VideoCapture(video_path)
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
@@ -121,7 +128,8 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         os.makedirs(output_path + f'/{xai_method}', exist_ok=True)
         xai[xai_method] = eval(f'{xai_method}')(model)
         if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
-            writers[xai_method] = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps, writer_dim)
+            writers[xai_method] = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps,
+                                                  writer_dim)
         xai_metrics[xai_method] = {
             'total_frames': 0,
             'total_fake_predictions': [],
@@ -162,11 +170,20 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             else:
                 xai_img = xai[xai_method].attribute(preprocessed_image, target=prediction)
 
-            xai_img = un_preprocess_image(xai_img, xai_img.shape[2])
+            # TODO: look on it https://gist.github.com/jianchao-li/f7b507bc66b2215e15cc0135f03c3ff9 for heatmap
+            attribution_map = xai_img
+            attribution_map = attribution_map[0].permute(1, 2, 0).cpu().detach().numpy()
+            gray_attribution_map = to_gray_image(attribution_map)
+            resized_image = cv2.resize(cropped_face, (attribution_map.shape[1], attribution_map.shape[0]))
+            heatmap = cv2.applyColorMap(gray_attribution_map, cv2.COLORMAP_JET)
+            heatmap = heatmap[:, :, ::-1]
+            blended_heat_map = cv2.addWeighted(resized_image, 0.5, heatmap, 0.5, 0)
+
+            # xai_img = un_preprocess_image(xai_img, xai_img.shape[2])
             xai_metrics[xai_method]['prediction_list'].append(prediction)
             xai_metrics[xai_method]['total_frames'] += 1.
             xai_metrics[xai_method]['probs_list'].append(output[0])
-            writers[xai_method].write(xai_img)
+            writers[xai_method].write(blended_heat_map)
     pbar.close()
     for xai_method in xai_methods:
         sum_of_fakes = sum(xai_metrics[xai_method]['prediction_list'])
