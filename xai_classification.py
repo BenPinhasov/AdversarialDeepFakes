@@ -1,3 +1,5 @@
+import os
+
 import PIL.Image
 import numpy as np
 from torchvision.models import resnet50, ResNet50_Weights
@@ -10,7 +12,8 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import DatasetFolder, ImageFolder
 from PIL import Image as pil_image
 from tqdm import tqdm
-
+from torch.utils.tensorboard import SummaryWriter
+from dataset.transform import ImageXaiFolder
 
 # def main():
 #     weights = ResNet50_Weights.DEFAULT
@@ -22,23 +25,7 @@ def loader(path):
     return image
 
 
-class CustomImageFolder(ImageFolder):
-    def __init__(self, root, transform=None):
-        super().__init__(root, transform=transform)
-        self.xai_extension = '_xai.jpg'
 
-    def __getitem__(self, idx):
-        image_path, label = self.imgs[idx]
-        xai_path = image_path.replace(self.xai_extension, '.jpg')
-
-        image = self.loader(image_path)
-        xai_map = self.loader(xai_path)
-
-        if self.transform is not None:
-            image = self.transform(image)
-            xai_map = self.transform(xai_map)
-
-        return image, xai_map, label
 
 
 class CustomResNet50(nn.Module):
@@ -85,7 +72,8 @@ def calculate_accuracy(outputs, labels):
 # From chatgpt
 def example_for_train_resnet():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    data_path = 'Datasets/dataset_custom_resent50/EfficientNetB4ST/GuidedBackprop/'
+    data_path = 'Datasets/new_dataset_resent50/EfficientNetB4ST/IntegratedGradients/'
+    summery_writer = SummaryWriter('resnet50_logs')
     # data = np.load(data_path).astype("float16")
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -93,9 +81,14 @@ def example_for_train_resnet():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
     # dataset = DatasetFolder(root=data_path, loader=loader, extensions=['npy'], transform=transform)
-    dataset = CustomImageFolder(root=data_path, transform=transform)
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [0.8, 0.2])
-    # train_dataset, test_dataset = torch.utils.data.random_split(train_dataset, [0.8, 0.2])
+    dataset = ImageXaiFolder(root=data_path, transform=transform)
+    total_len = len(dataset)
+    train_len = int(total_len * 0.7)
+    valid_len = int(total_len * 0.2)
+    test_len = total_len - train_len - valid_len
+    train_dataset, valid_dataset, test_dataset = torch.utils.data.random_split(dataset,
+                                                                               [train_len, valid_len, test_len])
+    # train_dataset, valid_dataset = torch.utils.data.random_split(train_dataset, [0.8, 0.2])
     # Step 1: Load the pre-trained ResNet-50 model
     weights = ResNet50_Weights.DEFAULT
     # model = CustomResNet50(weights=weights)
@@ -113,6 +106,7 @@ def example_for_train_resnet():
     # Replace YourDataset with your actual dataset class and set appropriate batch size
     # train_dataset = YourDataset(root='path_to_training_data', transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    validation_loader = DataLoader(valid_dataset, batch_size=16, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
     activation_function = nn.Softmax(dim=1)
     # Training loop
@@ -137,10 +131,14 @@ def example_for_train_resnet():
             optimizer.step()
             running_loss += loss.item()
             batch_pbar.update(1)
-        print('testing the model')
+
+        avg_loss = running_loss / len(train_loader)
+        summery_writer.add_scalar('Loss/train', avg_loss, epoch)
+
+        print('validation the model')
         model = model.eval()
         with torch.no_grad():
-            for val_images, val_xais, val_labels in test_loader:
+            for test_images, val_xais, val_labels in validation_loader:
                 # val_images = val_images.to(device)
                 val_xais = val_xais.to(device)
                 val_labels = val_labels.to(device)
@@ -150,18 +148,140 @@ def example_for_train_resnet():
                 accuracy = calculate_accuracy(val_outputs, val_labels)
                 total_accuracy += accuracy
 
-        avg_loss = running_loss / len(train_loader)
-        avg_accuracy = total_accuracy / len(test_loader)
-
+        avg_accuracy = total_accuracy / len(validation_loader)
+        summery_writer.add_scalar('Accuracy/validation', avg_accuracy, epoch)
         epoch_pbar.update(1)
         batch_pbar.close()
 
         print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}, Validation Accuracy: {avg_accuracy * 100:.2f}%")
     epoch_pbar.close()
+    print('testing the model')
+    # test the model with test dataset
+    total_accuracy = 0
+    model = model.eval()
+    with torch.no_grad():
+        for test_images, test_xais, test_labels in test_loader:
+            # val_images = val_images.to(device)
+            test_xais = test_xais.to(device)
+            test_labels = test_labels.to(device)
+            # val_outputs = model(val_images.float(), val_xais.float())
+            test_outputs = model(test_xais.float())
+            test_outputs = activation_function(test_outputs)
+            accuracy = calculate_accuracy(test_outputs, test_labels)
+            total_accuracy += accuracy
 
+    avg_accuracy = total_accuracy / len(validation_loader)
+    print(f"Test Accuracy: {avg_accuracy * 100:.2f}%")
+    summery_writer.add_scalar('Accuracy/test', avg_accuracy)
     # Save the trained model
     torch.save(model.state_dict(), 'resnet50_fake_real_classifier1.pth')
 
 
+class Classifier(nn.Module):
+    def __init__(self, input_dim, num_classes):
+        super(Classifier, self).__init__()
+        # self.fc1 = nn.Linear(input_dim, 256)  # Adjust the hidden layer size as needed
+        self.fc1 = nn.Linear(input_dim, num_classes)  # Adjust the hidden layer size as needed
+        # self.relu1 = nn.ReLU()
+        # self.fc2 = nn.Linear(256, 128)  # You can adjust the size of hidden layers
+        # self.relu2 = nn.ReLU()
+        # self.fc3 = nn.Linear(128, num_classes)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        # x = self.relu1(x)
+        # x = self.fc2(x)
+        # x = self.relu2(x)
+        # x = self.fc3(x)
+        return x
+
+
+def training_using_clip():
+    import clip
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model, preprocess = clip.load("ViT-B/32", device=device)
+    data_path = 'Datasets/new_dataset_resent50/EfficientNetB4ST/IntegratedGradients/'
+    summery_writer = SummaryWriter('clip_logs')
+    classifier = Classifier(512, 2).to(device)
+    dataset = CustomImageFolder(root=data_path, transform=preprocess)
+    total_len = len(dataset)
+    train_len = int(total_len * 0.7)
+    valid_len = int(total_len * 0.2)
+    test_len = total_len - train_len - valid_len
+    train_dataset, valid_dataset, test_dataset = torch.utils.data.random_split(dataset,
+                                                                               [train_len, valid_len, test_len])
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    validation_loader = DataLoader(valid_dataset, batch_size=16, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(classifier.parameters(), lr=0.001, momentum=0.9)
+    num_epochs = 50
+    epoch_pbar = tqdm(total=num_epochs)
+    for epoch in range(num_epochs):
+        print('\ntraining the model')
+        batch_pbar = tqdm(total=len(train_loader))
+        classifier.train()
+        for images, xais, labels in train_loader:
+            xais = xais.to(device)
+            labels = labels.to(device)
+            with torch.no_grad():
+                embeddings = model.encode_image(xais).type(torch.float32)
+            optimizer.zero_grad()
+            outputs = classifier(embeddings)
+            loss = criterion(outputs, labels.to(device))
+            loss.backward()
+            optimizer.step()
+            batch_pbar.update(1)
+        batch_pbar.close()
+        summery_writer.add_scalar('Loss/train', loss, epoch)
+        # Validation
+        classifier.eval()
+        print('\nvalidation the model')
+        validation_bar = tqdm(total=len(validation_loader))
+        total_correct = 0
+        total_samples = 0
+        with torch.no_grad():
+            for images, xais, labels in validation_loader:
+                xais = xais.to(device)
+                labels = labels.to(device)
+                embeddings = model.encode_image(xais).type(torch.float32)
+                outputs = classifier(embeddings)
+                _, predicted = torch.max(outputs, 1)
+                total_samples += labels.size(0)
+                total_correct += (predicted == labels).sum().item()
+                validation_bar.update(1)
+        validation_bar.close()
+
+
+        accuracy = 100 * total_correct / total_samples
+        print(f'\nEpoch [{epoch + 1}/{num_epochs}], Accuracy: {accuracy:.2f}%')
+        summery_writer.add_scalar('Accuracy/validation', accuracy, epoch)
+        epoch_pbar.update(1)
+    epoch_pbar.close()
+    print('\ntesting the model')
+    # test the model with test dataset
+    total_accuracy = 0
+    classifier.eval()
+    total_correct = 0
+    total_samples = 0
+    testing_bar = tqdm(total=len(test_loader))
+    with torch.no_grad():
+        for images, xais, labels in test_loader:
+            xais = xais.to(device)
+            labels = labels.to(device)
+            embeddings = model.encode_image(xais).type(torch.float32)
+            outputs = classifier(embeddings)
+            _, predicted = torch.max(outputs, 1)
+            total_samples += labels.size(0)
+            total_correct += (predicted == labels).sum().item()
+            testing_bar.update(1)
+        total_accuracy += 100 * total_correct / total_samples
+
+    avg_accuracy = total_accuracy / len(test_loader)
+    print(f"Test Accuracy: {avg_accuracy * 100:.2f}%")
+    summery_writer.add_scalar('Accuracy/test', avg_accuracy)
+    testing_bar.close()
+
 if __name__ == '__main__':
-    example_for_train_resnet()
+    # example_for_train_resnet()
+    training_using_clip()
