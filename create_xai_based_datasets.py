@@ -28,13 +28,13 @@ def main(video_path, model_type, videos_type, output_path, xai_methods):
     if model_type == 'EfficientNetB4ST':
         frame_size = 224
     elif model_type == 'xception':
-        frame_size = 298
+        frame_size = 299
     face_detector = dlib.get_frontal_face_detector()
     for xai_method in xai_methods:
-        if videos_type == 'fake':
-            xai_maps_dir = f'Datasets/manipulated_sequences/Deepfakes/c23/detection_videos/{model_type}/xai/{xai_method}/'
+        if videos_type == 'real':
+            xai_maps_dir = f'Datasets/original_sequences/youtube/c23/detection_videos/{model_type}/xai_old/{xai_method}/'
         else:
-            xai_maps_dir = f'Datasets/manipulated_sequences/Deepfakes/c23/attacked/{model_type}/xai/{xai_method}/'
+            xai_maps_dir = f'Datasets/manipulated_sequences/Deepfakes/c23/attacked/{model_type}/xai_old/{xai_method}/'
         output_dir = output_path + f'{model_type}/{xai_method}/{videos_type}/'
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -88,7 +88,7 @@ if __name__ == '__main__':
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--video_path', '-i', type=str)
     p.add_argument('--model_type', '-mt', type=str, default="xception")
-    p.add_argument('--videos_type', '-vt', type=str, default="fake")
+    p.add_argument('--videos_type', '-vt', type=str, default="real")
     p.add_argument('--output_path', '-o', type=str, default='.')
     p.add_argument('--xai_methods', '-x', nargs='*', type=str)
     args = p.parse_args()

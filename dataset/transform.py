@@ -2,11 +2,17 @@
 
 Author: Andreas Rössler
 """
+import os
+import random
+
 from torchvision import transforms
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
 import cv2
-
+from torchvision.datasets import ImageFolder
+from torch.utils.data import Dataset
+from itertools import combinations
+from PIL import Image
 
 class UnNormalize(object):
     def __init__(self, mean, std):
@@ -192,3 +198,86 @@ mesonet_default_data_transforms = {
         UnNormalize([0.5] * 3, [0.5] * 3)
     ])
 }
+
+
+class ImageXaiFolder(ImageFolder):
+    def __init__(self, root, transform=None):
+        super().__init__(root, transform=transform)
+        self.xai_extension = '_xai.jpg'
+        self.image_files = []
+        self.xai_map_files = []
+        for subfolder in os.listdir(root):
+            image_subfolder = os.path.join(root, subfolder)
+            self.image_files.extend(
+                [os.path.join(image_subfolder, f) for f in os.listdir(image_subfolder) if not f.endswith('_xai.jpg')])
+            self.xai_map_files.extend(
+                [os.path.join(image_subfolder, f) for f in os.listdir(image_subfolder) if f.endswith('_xai.jpg')])
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        # image_path, label = self.imgs[idx]
+        image_path = self.image_files[idx]
+        # xai_path = image_path.replace(self.xai_extension, '.jpg')
+        xai_path = image_path.split('.')[0] + self.xai_extension
+        label = 1 if "attacked" in image_path else 0
+
+        image = self.loader(image_path)
+        xai_map = self.loader(xai_path)
+
+        if self.transform is not None:
+            image = self.transform(image)
+            xai_map = self.transform(xai_map)
+
+        return image, xai_map, label
+
+
+class SiameseDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.classes = os.listdir(root_dir)
+        self.class_to_index = {cls: idx for idx, cls in enumerate(self.classes)}
+        self.image_paths = self.get_image_paths()
+        # self.pairs, self.labels = self.create_pairs()
+        self.pairs = self.create_pairs()
+    def get_image_paths(self):
+        image_paths = []
+        for cls in self.classes:
+            if cls == 'fake':
+                continue
+            class_dir = os.path.join(self.root_dir, cls)
+            class_images = [os.path.join(class_dir, img) for img in os.listdir(class_dir) if img.endswith('_xai.jpg')]
+            image_paths.extend(class_images)
+        return image_paths
+
+    def create_pairs(self):
+        # pairs = []
+        # labels = []
+        # for i in range(len(self.image_paths)):
+        #     for j in range(i + 1, len(self.image_paths)):
+        #         img1, img2 = self.image_paths[i], self.image_paths[j]
+        #         label = 1 if self.class_to_index[os.path.basename(os.path.dirname(img1))] == self.class_to_index[os.path.basename(os.path.dirname(img2))] else 0
+        #         pairs.append((img1, img2))
+        #         labels.append(label)
+        # return pairs, labels
+        # pairs = combinations(self.image_paths, 2)
+        random_pairs = [(random.choice(self.image_paths), random.choice(self.image_paths)) for _ in range(100000)]
+        return random_pairs
+    def __len__(self):
+        return len(self.pairs)
+
+    def __getitem__(self, idx):
+        img1_path, img2_path = self.pairs[idx]
+        label = 1 if self.class_to_index[os.path.basename(os.path.dirname(img1_path))] == self.class_to_index[os.path.basename(os.path.dirname(img2_path))] else 0
+        img1 = Image.open(img1_path) # Convert to grayscale
+        img2 = Image.open(img2_path) # Convert to grayscale
+
+        if self.transform:
+            img1 = self.transform(img1)
+            img2 = self.transform(img2)
+
+        label = float(label)  # Convert label to a float
+
+        return img1, img2, label

@@ -13,7 +13,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/create_xai_based_datasets.py" />
-    <option name="PARAMETERS" value="--video_path Datasets\manipulated_sequences\Deepfakes\c23\attacked\xception\ --output_path Datasets/dataset_custom_resent50/ --model_type xception --videos_type attacked --xai_methods GuidedBackprop Saliency InputXGradient IntegratedGradients" />
+    <option name="PARAMETERS" value="--video_path Datasets\manipulated_sequences\Deepfakes\c23\attacked\xception\ --output_path Datasets/new_dataset_resent50/ --model_type xception --videos_type attacked --xai_methods GuidedBackprop Saliency InputXGradient IntegratedGradients" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

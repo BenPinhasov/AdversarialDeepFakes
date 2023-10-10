@@ -170,20 +170,11 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             else:
                 xai_img = xai[xai_method].attribute(preprocessed_image, target=prediction)
 
-            # TODO: look on it https://gist.github.com/jianchao-li/f7b507bc66b2215e15cc0135f03c3ff9 for heatmap
-            attribution_map = xai_img
-            attribution_map = attribution_map[0].permute(1, 2, 0).cpu().detach().numpy()
-            gray_attribution_map = to_gray_image(attribution_map)
-            resized_image = cv2.resize(cropped_face, (attribution_map.shape[1], attribution_map.shape[0]))
-            heatmap = cv2.applyColorMap(gray_attribution_map, cv2.COLORMAP_JET)
-            heatmap = heatmap[:, :, ::-1]
-            blended_heat_map = cv2.addWeighted(resized_image, 0.5, heatmap, 0.5, 0)
-
-            # xai_img = un_preprocess_image(xai_img, xai_img.shape[2])
+            xai_img = un_preprocess_image(xai_img, xai_img.shape[2])
             xai_metrics[xai_method]['prediction_list'].append(prediction)
             xai_metrics[xai_method]['total_frames'] += 1.
             xai_metrics[xai_method]['probs_list'].append(output[0])
-            writers[xai_method].write(blended_heat_map)
+            writers[xai_method].write(xai_img)
     pbar.close()
     for xai_method in xai_methods:
         sum_of_fakes = sum(xai_metrics[xai_method]['prediction_list'])
