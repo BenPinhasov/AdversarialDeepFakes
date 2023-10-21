@@ -161,7 +161,7 @@ def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax
     output = model(preprocessed_image)
     output = post_function(output)
     if model_type == 'EfficientNetB4ST':
-        fake_pred = output[0][0].item()
+        fake_pred = output[0][1].item()
         real_pred = 1 - fake_pred
         output = np.array([real_pred, fake_pred])
         prediction = float(np.argmax(output))
@@ -339,8 +339,8 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
 
             print(">>>>Prediction LEGACY for frame no. {}: {}".format(frame_num, output))
 
-            prediction2, output2 = predict_with_model_legacy(original_cropped_face, model, model_type, cuda=cuda,
-                                                             post_function=post_function)
+            # prediction2, output2 = predict_with_model_legacy(original_cropped_face, model, model_type, cuda=cuda,
+            #                                                  post_function=post_function)
             # old_classification = prediction2
             # concat_crops = cv2.hconcat([original_cropped_face, unpreprocessed_image])
             # print(f'original_class: {prediction2}, new_class: {prediction}')
@@ -424,6 +424,7 @@ if __name__ == '__main__':
         create_adversarial_video(**vars(args))
     else:
         videos = os.listdir(video_path)
+        videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
         pbar_global = tqdm(total=len(videos))
         for video in videos:
             args.video_path = join(video_path, video)

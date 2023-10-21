@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import cv2
 
@@ -12,6 +13,7 @@ from detect_from_video import predict_with_model, get_boundingbox, preprocess_im
 torch.cuda.empty_cache()
 import torch.nn as nn
 import os
+from os.path import join
 import sys
 from PIL import Image as pil_image
 import json
@@ -20,6 +22,7 @@ from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Sal
 from matplotlib import pyplot as plt, cm
 import numpy as np
 from attack import un_preprocess_image
+from multiprocessing import Process, Queue, Event
 
 
 def image_to_display(img, label=None, confidence=None, target=None):
@@ -102,9 +105,23 @@ def to_gray_image(x):
     return np.array(x, dtype=np.uint8)
 
 
+def video_writer_process(output_path, xai_method, video_fn, writer_dim, fps, frames_queue, close_event: Event):
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    writer = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps,
+                             writer_dim)
+    print(f'video writer process for {xai_method} method and video file name {video_fn} started')
+    while not close_event.is_set():
+        if not frames_queue.empty():
+            frame = frames_queue.get()
+            writer.write(frame)
+        else:
+            time.sleep(0.1)
+    writer.release()
+    print(f'video writer process for {xai_method} method and video file name {video_fn} finished')
+
+
 def compute_attr(video_path, model_path, model_type, output_path, xai_methods, cuda):
     reader = cv2.VideoCapture(video_path)
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     fps = reader.get(cv2.CAP_PROP_FPS)
     video_fn = os.path.basename(video_path).split('.')[0] + '.avi'
     num_frames = int(reader.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -123,13 +140,20 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
     pbar = tqdm(total=end_frame - start_frame)
     xai_metrics = {}
     xai = {}
-    writers = {}
+    writers_process = {}
+    writers_process_events = {}
+    writers_process_frames_queues = {}
     for xai_method in xai_methods:
         os.makedirs(output_path + f'/{xai_method}', exist_ok=True)
         xai[xai_method] = eval(f'{xai_method}')(model)
         if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
-            writers[xai_method] = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps,
-                                                  writer_dim)
+            writers_process_frames_queues[xai_method] = Queue()
+            writers_process_events[xai_method] = Event()
+            p = Process(target=video_writer_process, args=(output_path, xai_method, video_fn, writer_dim, fps,
+                                                           writers_process_frames_queues[xai_method],
+                                                           writers_process_events[xai_method], ))
+            writers_process[xai_method] = p
+            p.start()
         xai_metrics[xai_method] = {
             'total_frames': 0,
             'total_fake_predictions': [],
@@ -174,7 +198,8 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             xai_metrics[xai_method]['prediction_list'].append(prediction)
             xai_metrics[xai_method]['total_frames'] += 1.
             xai_metrics[xai_method]['probs_list'].append(output[0])
-            writers[xai_method].write(xai_img)
+            # writers[xai_method].write(xai_img)
+            writers_process_frames_queues[xai_method].put_nowait(xai_img)
     pbar.close()
     for xai_method in xai_methods:
         sum_of_fakes = sum(xai_metrics[xai_method]['prediction_list'])
@@ -185,7 +210,9 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             with open(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json")), "w") as f:
                 f.write(json.dumps(xai_metrics[xai_method]))
             print(f'Finished! Output saved under {os.path.join(output_path, xai_method)}')
-            writers[xai_method].release()
+            # writers[xai_method].release()
+            writers_process_events[xai_method].set()
+            writers_process[xai_method].join()
 
 
 def main():
@@ -200,17 +227,19 @@ def main():
     args = p.parse_args()
     video_path = args.video_path
     # args.xai_methods = ['GuidedBackprop', 'Saliency', 'InputXGradient', 'IntegratedGradients']
-    videos = []
-    for root, directories, files in os.walk(video_path):
-        for filename in files:
-            # Join the two strings in order to form the full filepath
-            filepath = os.path.join(root, filename)
-            # Check if it is a mp4 file
-            if filepath.endswith('.mp4') or filepath.endswith('.avi'):
-                videos.append(filepath)
+    # videos = []
+    # for root, directories, files in os.walk(video_path):
+    #     for filename in files:
+    #         # Join the two strings in order to form the full filepath
+    #         filepath = os.path.join(root, filename)
+    #         # Check if it is a mp4 file
+    #         if filepath.endswith('.mp4') or filepath.endswith('.avi'):
+    #             videos.append(filepath)
+    videos = os.listdir(video_path)
+    videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
     pbar_global = tqdm(total=len(videos))
     for video in videos:
-        args.video_path = video
+        args.video_path = join(video_path, video)
         compute_attr(**vars(args))
         pbar_global.update(1)
     pbar_global.close()

@@ -133,7 +133,7 @@ def predict_with_model(image, model, model_type, post_function=nn.Softmax(dim=1)
         output = output.tolist()
     elif model_type == 'EfficientNetB4ST':
         output = post_function(output)
-        fake_pred = output[0][0].item()
+        fake_pred = output[0][1].item()
         real_pred = 1 - fake_pred
         output = np.array([real_pred, fake_pred])
         prediction = float(np.argmax(output))
@@ -201,7 +201,7 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
                 model.load_state_dict(weights)
             elif model_type == 'EfficientNetB4ST':
                 model = model_selection('EfficientNetB4ST', 2)
-                weights = torch.load(model_path)
+                weights = torch.load(model_path, map_location="cuda:0")
                 model.load_state_dict(weights)
                 post_function = nn.Sigmoid()
             else:
@@ -345,20 +345,20 @@ if __name__ == '__main__':
     if video_path.endswith('.mp4') or video_path.endswith('.avi'):
         test_full_image_network(**vars(args))
     else:
-        # videos = os.listdir(video_path)
-        # videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
-        videos = []
-        for root, directories, files in os.walk(video_path):
-            for filename in files:
+        videos = os.listdir(video_path)
+        videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
+        # videos = []
+        # for root, directories, files in os.walk(video_path):
+        #     for filename in files:
                 # Join the two strings in order to form the full filepath
-                filepath = os.path.join(root, filename)
+                # filepath = os.path.join(root, filename)
                 # Check if it is an mp4 file
-                if filepath.endswith('.mp4') or filepath.endswith('.avi'):
-                    videos.append(filepath)
+                # if filepath.endswith('.mp4') or filepath.endswith('.avi'):
+                #     videos.append(filepath)
         pbar_global = tqdm(total=len(videos))
         for video in videos:
-            # args.video_path = join(video_path, video)
-            args.video_path = video
+            args.video_path = join(video_path, video)
+            # args.video_path = video
             blockPrint()
             test_full_image_network(**vars(args))
             enablePrint()

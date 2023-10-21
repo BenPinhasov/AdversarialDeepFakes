@@ -44,7 +44,7 @@ def predict_with_model(preprocessed_image, model, model_type, post_function=nn.S
     output = post_function(logits)
 
     if model_type == 'EfficientNetB4ST':
-        fake_pred = output[0][0].item()
+        fake_pred = output[0][1].item()
         real_pred = 1 - fake_pred
         output = np.array([real_pred, fake_pred])
         prediction = float(np.argmax(output))
@@ -180,9 +180,9 @@ def iterative_fgsm(input_img, model, model_type, cuda=True, max_iter=100, alpha=
         prediction, output, logits = predict_with_model(input_var, model, model_type, cuda=cuda,
                                                         post_function=post_function)
         if model_type == 'EfficientNetB4ST':
-            repeated = logits.repeat(1, 2)
-            repeated[0][0] *= -1
-            logits = nn.Softmax(dim=1)(repeated)
+            # repeated = logits.repeat(1, 2)
+            # repeated[0][0] *= -1
+            logits = nn.Softmax(dim=1)(logits)
         if (output[0][0] - output[0][1]) > desired_acc:
             break
 
