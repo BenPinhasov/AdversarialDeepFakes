@@ -10,9 +10,10 @@ from albumentations.pytorch import ToTensorV2
 import albumentations as A
 import cv2
 from torchvision.datasets import ImageFolder
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from itertools import combinations
 from PIL import Image
+
 
 class UnNormalize(object):
     def __init__(self, mean, std):
@@ -200,39 +201,6 @@ mesonet_default_data_transforms = {
 }
 
 
-class ImageXaiFolder(ImageFolder):
-    def __init__(self, root, transform=None):
-        super().__init__(root, transform=transform)
-        self.xai_extension = '_xai.jpg'
-        self.image_files = []
-        self.xai_map_files = []
-        for subfolder in os.listdir(root):
-            image_subfolder = os.path.join(root, subfolder)
-            self.image_files.extend(
-                [os.path.join(image_subfolder, f) for f in os.listdir(image_subfolder) if not f.endswith('_xai.jpg')])
-            self.xai_map_files.extend(
-                [os.path.join(image_subfolder, f) for f in os.listdir(image_subfolder) if f.endswith('_xai.jpg')])
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        # image_path, label = self.imgs[idx]
-        image_path = self.image_files[idx]
-        # xai_path = image_path.replace(self.xai_extension, '.jpg')
-        xai_path = image_path.split('.')[0] + self.xai_extension
-        label = 1 if "attacked" in image_path else 0
-
-        image = self.loader(image_path)
-        xai_map = self.loader(xai_path)
-
-        if self.transform is not None:
-            image = self.transform(image)
-            xai_map = self.transform(xai_map)
-
-        return image, xai_map, label
-
-
 class SiameseDataset(Dataset):
     def __init__(self, root_dir, transform=None):
         self.root_dir = root_dir
@@ -242,6 +210,7 @@ class SiameseDataset(Dataset):
         self.image_paths = self.get_image_paths()
         # self.pairs, self.labels = self.create_pairs()
         self.pairs = self.create_pairs()
+
     def get_image_paths(self):
         image_paths = []
         for cls in self.classes:
@@ -265,14 +234,16 @@ class SiameseDataset(Dataset):
         # pairs = combinations(self.image_paths, 2)
         random_pairs = [(random.choice(self.image_paths), random.choice(self.image_paths)) for _ in range(100000)]
         return random_pairs
+
     def __len__(self):
         return len(self.pairs)
 
     def __getitem__(self, idx):
         img1_path, img2_path = self.pairs[idx]
-        label = 1 if self.class_to_index[os.path.basename(os.path.dirname(img1_path))] == self.class_to_index[os.path.basename(os.path.dirname(img2_path))] else 0
-        img1 = Image.open(img1_path) # Convert to grayscale
-        img2 = Image.open(img2_path) # Convert to grayscale
+        label = 1 if self.class_to_index[os.path.basename(os.path.dirname(img1_path))] == self.class_to_index[
+            os.path.basename(os.path.dirname(img2_path))] else 0
+        img1 = Image.open(img1_path)  # Convert to grayscale
+        img2 = Image.open(img2_path)  # Convert to grayscale
 
         if self.transform:
             img1 = self.transform(img1)
@@ -281,3 +252,74 @@ class SiameseDataset(Dataset):
         label = float(label)  # Convert label to a float
 
         return img1, img2, label
+
+
+class ImageXaiFolder(Dataset):
+    def __init__(self, original_path, original_xai_path, attacked_path, attacked_xai_path, transform=None):
+        self.original_path = original_path
+        self.original_xai_path = original_xai_path
+        self.attacked_path = attacked_path
+        self.attacked_xai_path = attacked_xai_path
+
+        original_paths = os.listdir(original_path)
+        original_xai_paths = os.listdir(original_xai_path)
+        attacked_paths = os.listdir(attacked_path)
+        attacked_xai_paths = os.listdir(attacked_xai_path)
+
+        self.original_images = ['original-' + image for image in original_paths if image.endswith(".jpg")]
+        self.original_xai = [image for image in original_xai_paths if image.endswith(".jpg")]
+        self.attacked_images = ['attacked-' + image for image in attacked_paths if image.endswith(".jpg")]
+        self.attacked_xai = [image for image in attacked_xai_paths if image.endswith(".jpg")]
+        self.images = self.original_images + self.attacked_images
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        image_path = self.images[idx]
+        if image_path.find('original-') != -1:
+            base_name = image_path.split('-')[1]
+            image_path = os.path.join(self.original_path, base_name)
+            xai_path = os.path.join(self.original_xai_path, base_name)
+            label = 0
+        elif image_path.find('attacked-') != -1:
+            base_name = image_path.split('-')[1]
+            image_path = os.path.join(self.attacked_path, base_name)
+            xai_path = os.path.join(self.attacked_xai_path, base_name)
+            label = 1
+
+        image = self.loader(image_path)
+        xai_map = self.loader(xai_path)
+
+        if self.transform is not None:
+            image = self.transform(image)
+            xai_map = self.transform(xai_map)
+
+        return image, xai_map, label
+
+    def loader(self, path):
+        return Image.open(path)
+
+
+if __name__ == '__main__':
+    os.chdir(r'C:\Users\Ben.Pinhasov\PycharmProjects\AdversarialDeepFakes')
+    resenet_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((224, 224)),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    dataset = ImageXaiFolder(
+        original_path=r'newDataset\Train\Frames\original\xception\original',
+        original_xai_path=r'newDataset\Train\Frames\original\xception\GuidedBackprop',
+        attacked_path=r'newDataset\Train\Frames\attacked\Deepfakes\xception\original',
+        attacked_xai_path=r'newDataset\Train\Frames\attacked\Deepfakes\xception\GuidedBackprop',
+        transform=resenet_transform
+    )
+    train_loader = DataLoader(dataset, batch_size=16, shuffle=True)
+    for image, xai_map, label in train_loader:
+        print(image.shape)
+        print(xai_map.shape)
+        print(label)
+        pass
+        # break

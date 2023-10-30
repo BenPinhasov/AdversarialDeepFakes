@@ -105,18 +105,24 @@ def to_gray_image(x):
     return np.array(x, dtype=np.uint8)
 
 
-def video_writer_process(output_path, xai_method, video_fn, writer_dim, fps, frames_queue, close_event: Event):
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    writer = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps,
-                             writer_dim)
+def video_writer_process(output_path, model_type, xai_method, video_fn, writer_dim, fps, frames_queue,
+                         close_event: Event):
+    # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    # writer = cv2.VideoWriter(os.path.join(output_path, xai_method, video_fn), fourcc, fps,
+    #                          writer_dim)
     print(f'video writer process for {xai_method} method and video file name {video_fn} started')
+    video_fn = video_fn.replace(".avi", "")
     while not close_event.is_set():
         if not frames_queue.empty():
-            frame = frames_queue.get()
-            writer.write(frame)
+            xai_img, cropped_face, frame_id = frames_queue.get()
+            # writer.write(frame)
+            if not os.path.exists(os.path.join(output_path, model_type, f'original/{video_fn}_{frame_id}.jpg')):
+                cv2.imwrite(os.path.join(output_path, model_type, f'original/{video_fn}_{frame_id}.jpg'), cropped_face)
+            if not os.path.exists(os.path.join(output_path, model_type, xai_method, f'{video_fn}_{frame_id}.jpg')):
+                cv2.imwrite(os.path.join(output_path, model_type, xai_method, f'{video_fn}_{frame_id}.jpg'), xai_img)
         else:
             time.sleep(0.1)
-    writer.release()
+    # writer.release()
     print(f'video writer process for {xai_method} method and video file name {video_fn} finished')
 
 
@@ -144,14 +150,16 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
     writers_process_events = {}
     writers_process_frames_queues = {}
     for xai_method in xai_methods:
-        os.makedirs(output_path + f'/{xai_method}', exist_ok=True)
+        os.makedirs(output_path + f'/{model_type}/{xai_method}', exist_ok=True)
+        os.makedirs(output_path + f'/{model_type}/original', exist_ok=True)
         xai[xai_method] = eval(f'{xai_method}')(model)
         if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
             writers_process_frames_queues[xai_method] = Queue()
             writers_process_events[xai_method] = Event()
-            p = Process(target=video_writer_process, args=(output_path, xai_method, video_fn, writer_dim, fps,
-                                                           writers_process_frames_queues[xai_method],
-                                                           writers_process_events[xai_method], ))
+            p = Process(target=video_writer_process,
+                        args=(output_path, model_type, xai_method, video_fn, writer_dim, fps,
+                              writers_process_frames_queues[xai_method],
+                              writers_process_events[xai_method],))
             writers_process[xai_method] = p
             p.start()
         xai_metrics[xai_method] = {
@@ -162,6 +170,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             'probs_list': []
         }
     break_flag = False
+    frame_id = 0
     while reader.isOpened():
         ret, image = reader.read()
         if not ret:
@@ -181,8 +190,10 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         cropped_face = image[y:y + size, x:x + size]
         preprocessed_image = preprocess_image(cropped_face, model_type)
         prediction, output = predict_with_model(cropped_face, model, model_type, post_function=post_function, cuda=cuda)
+        if prediction == 1:
+            continue
         for xai_method in xai_methods:
-            if os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
+            if os.path.exists(os.path.join(output_path, model_type, xai_method, video_fn.replace(".avi", "_metrics.json"))):
                 print(f'metric file for {video_fn} exists. continue')
                 reader.release()
                 break_flag = True
@@ -199,7 +210,8 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             xai_metrics[xai_method]['total_frames'] += 1.
             xai_metrics[xai_method]['probs_list'].append(output[0])
             # writers[xai_method].write(xai_img)
-            writers_process_frames_queues[xai_method].put_nowait(xai_img)
+            writers_process_frames_queues[xai_method].put_nowait((xai_img, cropped_face, frame_id))
+        frame_id += 1
     pbar.close()
     for xai_method in xai_methods:
         sum_of_fakes = sum(xai_metrics[xai_method]['prediction_list'])
@@ -207,7 +219,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         xai_metrics[xai_method]['total_fake_predictions'] = sum_of_fakes
         xai_metrics[xai_method]['total_real_predictions'] = len_predictions - sum_of_fakes
         if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
-            with open(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json")), "w") as f:
+            with open(os.path.join(output_path, model_type, xai_method, video_fn.replace(".avi", "_metrics.json")), "w") as f:
                 f.write(json.dumps(xai_metrics[xai_method]))
             print(f'Finished! Output saved under {os.path.join(output_path, xai_method)}')
             # writers[xai_method].release()
