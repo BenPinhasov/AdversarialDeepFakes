@@ -14,6 +14,8 @@ from PIL import Image as pil_image
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from dataset.transform import ImageXaiFolder
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 
 # def main():
 #     weights = ResNet50_Weights.DEFAULT
@@ -23,9 +25,6 @@ from dataset.transform import ImageXaiFolder
 def loader(path):
     image = np.load(path) / 2
     return image
-
-
-
 
 
 class CustomResNet50(nn.Module):
@@ -63,6 +62,7 @@ class CustomResNet50(nn.Module):
 # Function to calculate accuracy
 def calculate_accuracy(outputs, labels):
     _, predicted = torch.max(outputs, 1)
+    _, labels = torch.max(labels, 1)
     correct = (predicted == labels).sum().item()
     total = labels.size(0)
     accuracy = correct / total
@@ -72,8 +72,15 @@ def calculate_accuracy(outputs, labels):
 # From chatgpt
 def example_for_train_resnet():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    data_path = 'Datasets/new_dataset_resent50/EfficientNetB4ST/IntegratedGradients/'
-    summery_writer = SummaryWriter('resnet50_logs')
+    train_original_crops_path = r'newDataset\Train\Frames\original\xception\original'
+    train_original_xai_path = r'newDataset\Train\Frames\original\xception\GuidedBackprop'
+    train_attacked_path = r'newDataset\Train\Frames\attacked\Deepfakes\xception\original'
+    train_attacked_xai_path = r'newDataset\Train\Frames\attacked\Deepfakes\xception\GuidedBackprop'
+    validation_original_crops_path = r'newDataset\Validation\Frames\original\xception\original'
+    validation_original_xai_path = r'newDataset\Validation\Frames\original\xception\GuidedBackprop'
+    validation_attacked_path = r'newDataset\Validation\Frames\attacked\Deepfakes\xception\original'
+    validation_attacked_xai_path = r'newDataset\Validation\Frames\attacked\Deepfakes\xception\GuidedBackprop'
+    summery_writer = SummaryWriter()
     # data = np.load(data_path).astype("float16")
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -81,80 +88,109 @@ def example_for_train_resnet():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
     # dataset = DatasetFolder(root=data_path, loader=loader, extensions=['npy'], transform=transform)
-    dataset = ImageXaiFolder(root=data_path, transform=transform)
-    total_len = len(dataset)
-    train_len = int(total_len * 0.7)
-    valid_len = int(total_len * 0.2)
-    test_len = total_len - train_len - valid_len
-    train_dataset, valid_dataset, test_dataset = torch.utils.data.random_split(dataset,
-                                                                               [train_len, valid_len, test_len])
+    train_dataset = ImageXaiFolder(
+        original_path=train_original_crops_path,
+        original_xai_path=train_original_xai_path,
+        attacked_path=train_attacked_path,
+        attacked_xai_path=train_attacked_xai_path,
+        transform=transform)
+    validation_dataset = ImageXaiFolder(
+        original_path=validation_original_crops_path,
+        original_xai_path=validation_original_xai_path,
+        attacked_path=validation_attacked_path,
+        attacked_xai_path=validation_attacked_xai_path,
+        transform=transform)
+    # total_len = len(dataset)
+    # train_len = int(total_len * 0.7)
+    # valid_len = int(total_len * 0.2)
+    # test_len = total_len - train_len - valid_len
+    # train_dataset, valid_dataset, test_dataset = torch.utils.data.random_split(dataset,
+    #                                                                            [train_len, valid_len, test_len])
     # train_dataset, valid_dataset = torch.utils.data.random_split(train_dataset, [0.8, 0.2])
     # Step 1: Load the pre-trained ResNet-50 model
     weights = ResNet50_Weights.DEFAULT
-    # model = CustomResNet50(weights=weights)
-    model = resnet50(weights=weights)
-    model.fc = nn.Linear(2048, 2)
+    model = CustomResNet50(weights=weights)
+    # model = resnet50(weights=weights)
+    # model.fc = nn.Linear(2048, 2)
     model = model.to(device)
     # model.resnet50 = model.resnet50.train(False)
     # Step 3: Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
-
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0.0001)
     # Step 4: Load your dataset and create data loaders
     # Replace YourDataset with your actual dataset class and adjust data augmentation/transforms as needed
 
     # Replace YourDataset with your actual dataset class and set appropriate batch size
     # train_dataset = YourDataset(root='path_to_training_data', transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    validation_loader = DataLoader(valid_dataset, batch_size=16, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=2)
+    validation_loader = DataLoader(validation_dataset, batch_size=16, shuffle=False, num_workers=2)
+    # test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
     activation_function = nn.Softmax(dim=1)
     # Training loop
-    num_epochs = 50  # You can adjust this
+    num_epochs = 50
+    best_val_acc = 0
+    best_model = None
+
     epoch_pbar = tqdm(total=num_epochs)
     for epoch in range(num_epochs):
         running_loss = 0.0
         total_accuracy = 0.0
-
+        train_accuracy = 0.0
         batch_pbar = tqdm(total=len(train_loader))
         model = model.train()
         for images, xais, labels in train_loader:
-            # images = images.to(device)
+            images = images.to(device)
             xais = xais.to(device)
             labels = labels.to(device)
             optimizer.zero_grad()
-            # outputs = model(images.float(), xais.float())
-            outputs = model(xais.float())
-            outputs = activation_function(outputs)
+            outputs = model(images.float(), xais.float())
+            # outputs = model(xais.float())
+            # outputs = activation_function(outputs)
+            # outputs = outputs.argmax(dim=1)
             loss = criterion(outputs, labels)
+            train_accuracy += calculate_accuracy(activation_function(outputs), labels)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
             batch_pbar.update(1)
 
         avg_loss = running_loss / len(train_loader)
+        avg_train_accuracy = train_accuracy / len(train_loader)
         summery_writer.add_scalar('Loss/train', avg_loss, epoch)
+        summery_writer.add_scalar('Accuracy/train', avg_train_accuracy, epoch)
 
         print('validation the model')
+        val_running_loss = 0.0
         model = model.eval()
         with torch.no_grad():
-            for test_images, val_xais, val_labels in validation_loader:
-                # val_images = val_images.to(device)
+            for val_images, val_xais, val_labels in validation_loader:
+                val_images = val_images.to(device)
                 val_xais = val_xais.to(device)
                 val_labels = val_labels.to(device)
-                # val_outputs = model(val_images.float(), val_xais.float())
-                val_outputs = model(val_xais.float())
-                val_outputs = activation_function(val_outputs)
-                accuracy = calculate_accuracy(val_outputs, val_labels)
+                val_outputs = model(val_images.float(), val_xais.float())
+                # val_outputs = model(val_xais.float())
+                # val_outputs = activation_function(val_outputs)
+                val_loss = criterion(val_outputs, val_labels)
+                accuracy = calculate_accuracy(activation_function(val_outputs), val_labels)
                 total_accuracy += accuracy
-
+                val_running_loss += val_loss.item()
+        val_avg_loss = val_running_loss / len(validation_loader)
         avg_accuracy = total_accuracy / len(validation_loader)
+        scheduler.step(val_avg_loss)
         summery_writer.add_scalar('Accuracy/validation', avg_accuracy, epoch)
+        summery_writer.add_scalar('Loss/validation', val_avg_loss, epoch)
+        summery_writer.add_scalar('LR/validation', optimizer.param_groups[0]['lr'], epoch)
         epoch_pbar.update(1)
         batch_pbar.close()
-
+        if accuracy > best_val_acc:
+            best_val_acc = accuracy
+            best_model = model.state_dict()
+            torch.save(best_model, 'best_model.pth')
         print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}, Validation Accuracy: {avg_accuracy * 100:.2f}%")
     epoch_pbar.close()
+    if best_model is not None:
+        torch.save(best_model, 'best_model.pth')
     print('testing the model')
     # test the model with test dataset
     total_accuracy = 0
@@ -178,7 +214,7 @@ def example_for_train_resnet():
 
 
 class Classifier(nn.Module):
-    def __init__(self, input_dim, num_classes):
+    def train___init__(self, input_dim, num_classes):
         super(Classifier, self).__init__()
         # self.fc1 = nn.Linear(input_dim, 256)  # Adjust the hidden layer size as needed
         self.fc1 = nn.Linear(input_dim, num_classes)  # Adjust the hidden layer size as needed
@@ -252,7 +288,6 @@ def training_using_clip():
                 validation_bar.update(1)
         validation_bar.close()
 
-
         accuracy = 100 * total_correct / total_samples
         print(f'\nEpoch [{epoch + 1}/{num_epochs}], Accuracy: {accuracy:.2f}%')
         summery_writer.add_scalar('Accuracy/validation', accuracy, epoch)
@@ -282,6 +317,7 @@ def training_using_clip():
     summery_writer.add_scalar('Accuracy/test', avg_accuracy)
     testing_bar.close()
 
+
 if __name__ == '__main__':
-    # example_for_train_resnet()
-    training_using_clip()
+    example_for_train_resnet()
+    # training_using_clip()

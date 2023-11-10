@@ -5,6 +5,7 @@ Author: Andreas Rössler
 import os
 import random
 
+import numpy as np
 from torchvision import transforms
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
@@ -256,6 +257,7 @@ class SiameseDataset(Dataset):
 
 class ImageXaiFolder(Dataset):
     def __init__(self, original_path, original_xai_path, attacked_path, attacked_xai_path, transform=None):
+        super(ImageXaiFolder, self).__init__()
         self.original_path = original_path
         self.original_xai_path = original_xai_path
         self.attacked_path = attacked_path
@@ -282,12 +284,12 @@ class ImageXaiFolder(Dataset):
             base_name = image_path.split('-')[1]
             image_path = os.path.join(self.original_path, base_name)
             xai_path = os.path.join(self.original_xai_path, base_name)
-            label = 0
+            label = np.array([1.0, 0.0])
         elif image_path.find('attacked-') != -1:
             base_name = image_path.split('-')[1]
             image_path = os.path.join(self.attacked_path, base_name)
             xai_path = os.path.join(self.attacked_xai_path, base_name)
-            label = 1
+            label = np.array([0.0, 1.0])
 
         image = self.loader(image_path)
         xai_map = self.loader(xai_path)
