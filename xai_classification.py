@@ -46,8 +46,11 @@ class CustomResNet50(nn.Module):
 
     def forward(self, x1, x2):
         # Forward pass for the two input images
-        x1 = self.resnet50(x1)
-        x2 = self.resnet50(x2)
+        batch_size = x1.shape[0]
+        output = self.resnet50(torch.vstack([x1, x2]))
+        # x2 = self.resnet50(x2)
+        x1 = output[:batch_size]
+        x2 = output[batch_size:]
 
         # Flatten and concatenate the feature vectors
         x1 = x1.view(x1.size(0), -1)
@@ -117,7 +120,7 @@ def example_for_train_resnet():
     # Step 3: Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.01)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0.0001)
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0.0001)
     # Step 4: Load your dataset and create data loaders
     # Replace YourDataset with your actual dataset class and adjust data augmentation/transforms as needed
 
@@ -177,7 +180,7 @@ def example_for_train_resnet():
                 val_running_loss += val_loss.item()
         val_avg_loss = val_running_loss / len(validation_loader)
         avg_accuracy = total_accuracy / len(validation_loader)
-        scheduler.step(val_avg_loss)
+        # scheduler.step(val_avg_loss)
         summery_writer.add_scalar('Accuracy/validation', avg_accuracy, epoch)
         summery_writer.add_scalar('Loss/validation', val_avg_loss, epoch)
         summery_writer.add_scalar('LR/validation', optimizer.param_groups[0]['lr'], epoch)
