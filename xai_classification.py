@@ -15,7 +15,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from dataset.transform import ImageXaiFolder
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
+import datetime as dt
 
 # def main():
 #     weights = ResNet50_Weights.DEFAULT
@@ -28,7 +28,7 @@ def loader(path):
 
 
 class CustomResNet50(nn.Module):
-    def __init__(self, weights):
+    def __init__(self, weights, dropout=False):
         super(CustomResNet50, self).__init__()
 
         # Load the pre-trained ResNet-50 model
@@ -36,13 +36,21 @@ class CustomResNet50(nn.Module):
 
         # Remove the final classification layer
         self.resnet50 = nn.Sequential(*list(self.resnet50.children())[:-1])
-
+        if dropout:
         # Add a custom classification layer
-        self.fc = nn.Sequential(
-            nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
-            nn.ReLU(inplace=True),
-            nn.Linear(512, 2)  # Output vector with 2 values (fake and attacked)
-        )
+            self.fc = nn.Sequential(
+                nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
+                nn.BatchNorm3d(512),
+                nn.ReLU(inplace=True),
+                nn.Dropout(0.1),
+                nn.Linear(512, 2)  # Output vector with 2 values (fake and attacked)
+            )
+        else:
+            self.fc = nn.Sequential(
+                nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
+                nn.ReLU(inplace=True),
+                nn.Linear(512, 2)
+            )
 
     def forward(self, x1, x2):
         # Forward pass for the two input images
@@ -83,7 +91,14 @@ def example_for_train_resnet():
     validation_original_xai_path = r'newDataset\Validation\Frames\original\xception\GuidedBackprop'
     validation_attacked_path = r'newDataset\Validation\Frames\attacked\Deepfakes\xception\original'
     validation_attacked_xai_path = r'newDataset\Validation\Frames\attacked\Deepfakes\xception\GuidedBackprop'
-    summery_writer = SummaryWriter()
+
+    num_epochs = 100
+    lr = 0.1
+    batch_size = 16
+    dropout = False
+    time = dt.datetime.now().strftime('%b%d_%H-%M-%S')
+    summery_path = f'runs/{time}_lr{lr}_batch{batch_size}_dropout{dropout}'
+    summery_writer = SummaryWriter(log_dir=summery_path)
     # data = np.load(data_path).astype("float16")
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -112,26 +127,25 @@ def example_for_train_resnet():
     # train_dataset, valid_dataset = torch.utils.data.random_split(train_dataset, [0.8, 0.2])
     # Step 1: Load the pre-trained ResNet-50 model
     weights = ResNet50_Weights.DEFAULT
-    model = CustomResNet50(weights=weights)
+    model = CustomResNet50(weights=weights, dropout=dropout)
     # model = resnet50(weights=weights)
     # model.fc = nn.Linear(2048, 2)
     model = model.to(device)
     # model.resnet50 = model.resnet50.train(False)
     # Step 3: Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
     # scheduler = ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0.0001)
     # Step 4: Load your dataset and create data loaders
     # Replace YourDataset with your actual dataset class and adjust data augmentation/transforms as needed
 
     # Replace YourDataset with your actual dataset class and set appropriate batch size
     # train_dataset = YourDataset(root='path_to_training_data', transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=2)
-    validation_loader = DataLoader(validation_dataset, batch_size=16, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     # test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
     activation_function = nn.Softmax(dim=1)
     # Training loop
-    num_epochs = 50
     best_val_acc = 0
     best_model = None
 
@@ -189,11 +203,11 @@ def example_for_train_resnet():
         if accuracy > best_val_acc:
             best_val_acc = accuracy
             best_model = model.state_dict()
-            torch.save(best_model, 'best_model.pth')
+            torch.save(best_model, summery_path+'/best_model.pth')
         print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}, Validation Accuracy: {avg_accuracy * 100:.2f}%")
     epoch_pbar.close()
     if best_model is not None:
-        torch.save(best_model, 'best_model.pth')
+        torch.save(best_model, summery_path+'/best_model.pth')
     print('testing the model')
     # test the model with test dataset
     total_accuracy = 0
