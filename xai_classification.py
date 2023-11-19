@@ -208,6 +208,7 @@ def example_for_train_resnet():
     epoch_pbar.close()
     if best_model is not None:
         torch.save(best_model, summery_path+'/best_model.pth')
+    torch.save(best_model, summery_path+'/last_model.pth')
     print('testing the model')
     # test the model with test dataset
     total_accuracy = 0
