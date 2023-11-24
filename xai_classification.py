@@ -40,7 +40,7 @@ class CustomResNet50(nn.Module):
         # Add a custom classification layer
             self.fc = nn.Sequential(
                 nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
-                nn.BatchNorm3d(512),
+                nn.BatchNorm1d(512),
                 nn.ReLU(inplace=True),
                 nn.Dropout(0.1),
                 nn.Linear(512, 2)  # Output vector with 2 values (fake and attacked)
