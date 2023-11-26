@@ -83,21 +83,25 @@ def calculate_accuracy(outputs, labels):
 # From chatgpt
 def example_for_train_resnet():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_original_crops_path = r'newDataset\Train\Frames\original\xception\original'
-    train_original_xai_path = r'newDataset\Train\Frames\original\xception\GuidedBackprop'
-    train_attacked_path = r'newDataset\Train\Frames\attacked\Deepfakes\xception\original'
-    train_attacked_xai_path = r'newDataset\Train\Frames\attacked\Deepfakes\xception\GuidedBackprop'
-    validation_original_crops_path = r'newDataset\Validation\Frames\original\xception\original'
-    validation_original_xai_path = r'newDataset\Validation\Frames\original\xception\GuidedBackprop'
-    validation_attacked_path = r'newDataset\Validation\Frames\attacked\Deepfakes\xception\original'
-    validation_attacked_xai_path = r'newDataset\Validation\Frames\attacked\Deepfakes\xception\GuidedBackprop'
+    detector_type = 'xception'
+    xai_method = 'IntegratedGradients'
+    train_original_crops_path = rf'newDataset\Train\Frames\original\{detector_type}\original'
+    train_original_xai_path = rf'newDataset\Train\Frames\original\{detector_type}\{xai_method}'
+    train_attacked_path = rf'newDataset\Train\Frames\attacked\Deepfakes\{detector_type}\original'
+    train_attacked_xai_path = rf'newDataset\Train\Frames\attacked\Deepfakes\{detector_type}\{xai_method}'
+    validation_original_crops_path = rf'newDataset\Validation\Frames\original\{detector_type}\original'
+    validation_original_xai_path = rf'newDataset\Validation\Frames\original\{detector_type}\{xai_method}'
+    validation_attacked_path = rf'newDataset\Validation\Frames\attacked\Deepfakes\{detector_type}\original'
+    validation_attacked_xai_path = rf'newDataset\Validation\Frames\attacked\Deepfakes\{detector_type}\{xai_method}'
 
     num_epochs = 100
-    lr = 0.1
+    lr = 0.001
     batch_size = 16
     dropout = False
     time = dt.datetime.now().strftime('%b%d_%H-%M-%S')
-    summery_path = f'runs/{time}_lr{lr}_batch{batch_size}_dropout{dropout}'
+    detector_type = train_original_xai_path.split('\\')[-2]
+    xai_method = train_original_xai_path.split('\\')[-1]
+    summery_path = f'runs/{detector_type}/{xai_method}/{time}_lr{lr}_batch{batch_size}_dropout{dropout}'
     summery_writer = SummaryWriter(log_dir=summery_path)
     # data = np.load(data_path).astype("float16")
     transform = transforms.Compose([
