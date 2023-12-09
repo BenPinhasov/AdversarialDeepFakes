@@ -1,8 +1,9 @@
 import os
 
 import PIL.Image
+import clip
 import numpy as np
-from torchvision.models import resnet50, ResNet50_Weights
+from torchvision.models import resnet50, ResNet50_Weights, vit_l_32, ViT_L_32_Weights
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -17,6 +18,7 @@ from dataset.transform import ImageXaiFolder
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import datetime as dt
 
+
 # def main():
 #     weights = ResNet50_Weights.DEFAULT
 #     model = resnet50(weights=weights)
@@ -28,7 +30,7 @@ def loader(path):
 
 
 class CustomResNet50(nn.Module):
-    def __init__(self, weights, dropout=False):
+    def __init__(self, weights, dropout=False, frozen_resnet=False):
         super(CustomResNet50, self).__init__()
 
         # Load the pre-trained ResNet-50 model
@@ -36,8 +38,11 @@ class CustomResNet50(nn.Module):
 
         # Remove the final classification layer
         self.resnet50 = nn.Sequential(*list(self.resnet50.children())[:-1])
+        if frozen_resnet:
+            for param in self.resnet50.parameters():
+                param.requires_grad = False
         if dropout:
-        # Add a custom classification layer
+            # Add a custom classification layer
             self.fc = nn.Sequential(
                 nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
                 nn.BatchNorm1d(512),
@@ -70,6 +75,87 @@ class CustomResNet50(nn.Module):
         return output
 
 
+class CustomViT(nn.Module):
+    def __init__(self, weights=ViT_L_32_Weights.DEFAULT):
+        super(CustomViT, self).__init__()
+
+        # Load the pre-trained ViT model
+        self.ViT = vit_l_32(weights=weights)
+
+        # Remove the final classification layer
+        self.ViT.heads = nn.Identity()
+        for param in self.ViT.parameters():
+            param.requires_grad = False
+
+        self.fc = nn.Sequential(
+            nn.Linear(1024 * 2, 2048 * 2),  # Concatenated feature vectors from 2 images
+            nn.ReLU(inplace=True),
+            nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
+            nn.ReLU(inplace=True),
+            nn.Linear(512, 2)
+        )
+
+    def forward(self, x1, x2):
+        # Forward pass for the two input images
+        batch_size = x1.shape[0]
+        output = self.ViT(torch.vstack([x1, x2]))
+        # x2 = self.resnet50(x2)
+        x1 = output[:batch_size]
+        x2 = output[batch_size:]
+
+        # Flatten and concatenate the feature vectors
+        x1 = x1.view(x1.size(0), -1)
+        x2 = x2.view(x2.size(0), -1)
+        concatenated_features = torch.cat((x1, x2), dim=1)
+
+        # Forward pass through the custom classification layer
+        output = self.fc(concatenated_features)
+        return output
+
+
+class CustomClip(nn.Module):
+    def __init__(self):
+        super(CustomClip, self).__init__()
+        self.clip, self.preprocess = clip.load("ViT-B/32")
+        self.fc = nn.Sequential(
+            nn.Linear(512 * 2, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 32),
+            nn.ReLU(inplace=True),
+            nn.Linear(32, 16),
+            nn.ReLU(inplace=True),
+            nn.Linear(16, 2)
+        )
+
+    def forward(self, x1, x2):
+        # Forward pass for the two input images
+        batch_size = x1.shape[0]
+        with torch.no_grad():
+            output = self.clip.encode_image(torch.vstack([x1, x2])).type(torch.float32)
+        # x2 = self.resnet50(x2)
+        x1 = output[:batch_size]
+        x2 = output[batch_size:]
+
+        # Flatten and concatenate the feature vectors
+        x1 = x1.view(x1.size(0), -1)
+        x2 = x2.view(x2.size(0), -1)
+        concatenated_features = torch.cat((x1, x2), dim=1)
+
+        # Forward pass through the custom classification layer
+        output = self.fc(concatenated_features)
+        return output
+
+
 # Function to calculate accuracy
 def calculate_accuracy(outputs, labels):
     _, predicted = torch.max(outputs, 1)
@@ -80,11 +166,10 @@ def calculate_accuracy(outputs, labels):
     return accuracy
 
 
-# From chatgpt
-def example_for_train_resnet():
+def train(embedding_model="resnet50"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    detector_type = 'xception'
-    xai_method = 'IntegratedGradients'
+    detector_type = 'EfficientNetB4ST'
+    xai_method = 'Saliency'
     train_original_crops_path = rf'newDataset\Train\Frames\original\{detector_type}\original'
     train_original_xai_path = rf'newDataset\Train\Frames\original\{detector_type}\{xai_method}'
     train_attacked_path = rf'newDataset\Train\Frames\attacked\Deepfakes\{detector_type}\original'
@@ -98,17 +183,31 @@ def example_for_train_resnet():
     lr = 0.001
     batch_size = 16
     dropout = False
+    frozen = False
     time = dt.datetime.now().strftime('%b%d_%H-%M-%S')
     detector_type = train_original_xai_path.split('\\')[-2]
     xai_method = train_original_xai_path.split('\\')[-1]
-    summery_path = f'runs/{detector_type}/{xai_method}/{time}_lr{lr}_batch{batch_size}_dropout{dropout}'
+    summery_path = f'runs_{embedding_model}_frozen{frozen}/{detector_type}/{xai_method}/{time}_lr{lr}_batch{batch_size}_dropout{dropout}'
     summery_writer = SummaryWriter(log_dir=summery_path)
     # data = np.load(data_path).astype("float16")
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize((224, 224)),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+    if embedding_model == "resnet50":
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((224, 224)),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        weights = ResNet50_Weights.DEFAULT
+        model = CustomResNet50(weights=weights, dropout=dropout, frozen_resnet=frozen)
+    elif embedding_model == "clip":
+        model = CustomClip()
+        transform = model.preprocess
+    elif embedding_model == "vit":
+        model = CustomViT()
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((224, 224)),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
     # dataset = DatasetFolder(root=data_path, loader=loader, extensions=['npy'], transform=transform)
     train_dataset = ImageXaiFolder(
         original_path=train_original_crops_path,
@@ -122,29 +221,10 @@ def example_for_train_resnet():
         attacked_path=validation_attacked_path,
         attacked_xai_path=validation_attacked_xai_path,
         transform=transform)
-    # total_len = len(dataset)
-    # train_len = int(total_len * 0.7)
-    # valid_len = int(total_len * 0.2)
-    # test_len = total_len - train_len - valid_len
-    # train_dataset, valid_dataset, test_dataset = torch.utils.data.random_split(dataset,
-    #                                                                            [train_len, valid_len, test_len])
-    # train_dataset, valid_dataset = torch.utils.data.random_split(train_dataset, [0.8, 0.2])
-    # Step 1: Load the pre-trained ResNet-50 model
-    weights = ResNet50_Weights.DEFAULT
-    model = CustomResNet50(weights=weights, dropout=dropout)
-    # model = resnet50(weights=weights)
-    # model.fc = nn.Linear(2048, 2)
+
     model = model.to(device)
-    # model.resnet50 = model.resnet50.train(False)
-    # Step 3: Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    # scheduler = ReduceLROnPlateau(optimizer, 'min', patience=4, verbose=True, min_lr=0.0001)
-    # Step 4: Load your dataset and create data loaders
-    # Replace YourDataset with your actual dataset class and adjust data augmentation/transforms as needed
-
-    # Replace YourDataset with your actual dataset class and set appropriate batch size
-    # train_dataset = YourDataset(root='path_to_training_data', transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     # test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
@@ -166,9 +246,6 @@ def example_for_train_resnet():
             labels = labels.to(device)
             optimizer.zero_grad()
             outputs = model(images.float(), xais.float())
-            # outputs = model(xais.float())
-            # outputs = activation_function(outputs)
-            # outputs = outputs.argmax(dim=1)
             loss = criterion(outputs, labels)
             train_accuracy += calculate_accuracy(activation_function(outputs), labels)
             loss.backward()
@@ -207,54 +284,15 @@ def example_for_train_resnet():
         if accuracy > best_val_acc:
             best_val_acc = accuracy
             best_model = model.state_dict()
-            torch.save(best_model, summery_path+'/best_model.pth')
+            torch.save(best_model, summery_path + '/best_model.pth')
         print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}, Validation Accuracy: {avg_accuracy * 100:.2f}%")
     epoch_pbar.close()
     if best_model is not None:
-        torch.save(best_model, summery_path+'/best_model.pth')
-    torch.save(best_model, summery_path+'/last_model.pth')
-    print('testing the model')
-    # test the model with test dataset
-    total_accuracy = 0
-    model = model.eval()
-    with torch.no_grad():
-        for test_images, test_xais, test_labels in test_loader:
-            # val_images = val_images.to(device)
-            test_xais = test_xais.to(device)
-            test_labels = test_labels.to(device)
-            # val_outputs = model(val_images.float(), val_xais.float())
-            test_outputs = model(test_xais.float())
-            test_outputs = activation_function(test_outputs)
-            accuracy = calculate_accuracy(test_outputs, test_labels)
-            total_accuracy += accuracy
-
-    avg_accuracy = total_accuracy / len(validation_loader)
-    print(f"Test Accuracy: {avg_accuracy * 100:.2f}%")
-    summery_writer.add_scalar('Accuracy/test', avg_accuracy)
-    # Save the trained model
-    torch.save(model.state_dict(), 'resnet50_fake_real_classifier1.pth')
+        torch.save(best_model, summery_path + '/best_model.pth')
+    torch.save(best_model, summery_path + '/last_model.pth')
 
 
-class Classifier(nn.Module):
-    def train___init__(self, input_dim, num_classes):
-        super(Classifier, self).__init__()
-        # self.fc1 = nn.Linear(input_dim, 256)  # Adjust the hidden layer size as needed
-        self.fc1 = nn.Linear(input_dim, num_classes)  # Adjust the hidden layer size as needed
-        # self.relu1 = nn.ReLU()
-        # self.fc2 = nn.Linear(256, 128)  # You can adjust the size of hidden layers
-        # self.relu2 = nn.ReLU()
-        # self.fc3 = nn.Linear(128, num_classes)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        # x = self.relu1(x)
-        # x = self.fc2(x)
-        # x = self.relu2(x)
-        # x = self.fc3(x)
-        return x
-
-
-def training_using_clip():
+def train_clip():
     import clip
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, preprocess = clip.load("ViT-B/32", device=device)
@@ -341,5 +379,5 @@ def training_using_clip():
 
 
 if __name__ == '__main__':
-    example_for_train_resnet()
-    # training_using_clip()
+    # train_resnet()
+    train(embedding_model="vit")
