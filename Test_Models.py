@@ -1,15 +1,13 @@
 import os
 
 from tqdm import tqdm
-
-from xai_classification import CustomResNet50, calculate_accuracy
+from xai_classification import CustomResNet50, calculate_accuracy, CustomViT, CustomClip
 import torch
 import torch.nn as nn
 from torchvision.models import ResNet50_Weights
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from dataset.transform import ImageXaiFolder
-
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -21,15 +19,15 @@ transform = transforms.Compose([
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    runs_main_dir = 'runs_clip_frozenFalse'
     detector_types = ['EfficientNetB4ST', 'xception']
     xai_methods_model = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
     xai_methods_dataset = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
-    weights = ResNet50_Weights.DEFAULT
     for xai_method in xai_methods_model:
         for detector_type in detector_types:
             for xai_method_dataset in xai_methods_dataset:
                 print(f'Testing {detector_type} with {xai_method} on dataset: {xai_method_dataset}')
-                runs_dir = f'runs/{detector_type}/{xai_method}'
+                runs_dir = f'{runs_main_dir}/{detector_type}/{xai_method}'
                 test_original_crops_path = rf'newDataset\Test\Frames\original\{detector_type}\original'
                 test_original_xai_path = rf'newDataset\Test\Frames\original\{detector_type}\{xai_method_dataset}'
                 test_attacked_path = rf'newDataset\Test\Frames\attacked\Deepfakes\{detector_type}\original'
@@ -37,11 +35,17 @@ def main():
 
                 runs = os.listdir(runs_dir)
                 run_bar = tqdm(total=len(runs))
+                if runs_dir.find('vit') != -1:
+                    model = CustomViT()
+                elif runs_dir.find('clip') != -1:
+                    model = CustomClip()
                 for run in runs:
-                    if run.find('True') != -1:  # check if dropout is true
-                        model = CustomResNet50(weights=weights, dropout=True)
-                    else:
-                        model = CustomResNet50(weights=weights)
+                    if run.find('resnet50') != -1:
+                        weights = ResNet50_Weights.DEFAULT
+                        if run.find('True') != -1:  # check if dropout is true
+                            model = CustomResNet50(weights=weights, dropout=True)
+                        else:
+                            model = CustomResNet50(weights=weights)
                     model.to(device)
                     working_path = os.path.join(runs_dir, run)
                     f = open(os.path.join(working_path, f'best_model_acc_{xai_method_dataset}.txt'), 'w')
