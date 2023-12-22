@@ -84,15 +84,16 @@ class CustomViT(nn.Module):
 
         # Remove the final classification layer
         self.ViT.heads = nn.Identity()
-        for param in self.ViT.parameters():
-            param.requires_grad = False
+        self.ViT.heads.requires_grad_(False)
+        # for param in self.ViT.parameters():
+        #     param.requires_grad = False
 
         self.fc = nn.Sequential(
-            nn.Linear(1024 * 2, 2048 * 2),  # Concatenated feature vectors from 2 images
+            nn.Linear(1024 * 2, 1024),  # Concatenated feature vectors from 2 images
+            # nn.ReLU(inplace=True),
+            # nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
             nn.ReLU(inplace=True),
-            nn.Linear(2048 * 2, 512),  # Concatenated feature vectors from 2 images
-            nn.ReLU(inplace=True),
-            nn.Linear(512, 2)
+            nn.Linear(1024, 2)
         )
 
     def forward(self, x1, x2):
@@ -168,8 +169,8 @@ def calculate_accuracy(outputs, labels):
 
 def train(embedding_model="resnet50"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    detector_type = 'EfficientNetB4ST'
-    xai_method = 'Saliency'
+    detector_type = 'xception'
+    xai_method = 'InputXGradient'
     train_original_crops_path = rf'newDataset\Train\Frames\original\{detector_type}\original'
     train_original_xai_path = rf'newDataset\Train\Frames\original\{detector_type}\{xai_method}'
     train_attacked_path = rf'newDataset\Train\Frames\attacked\Deepfakes\{detector_type}\original'
@@ -180,10 +181,10 @@ def train(embedding_model="resnet50"):
     validation_attacked_xai_path = rf'newDataset\Validation\Frames\attacked\Deepfakes\{detector_type}\{xai_method}'
 
     num_epochs = 100
-    lr = 0.001
+    lr = 0.00001
     batch_size = 16
     dropout = False
-    frozen = False
+    frozen = True
     time = dt.datetime.now().strftime('%b%d_%H-%M-%S')
     detector_type = train_original_xai_path.split('\\')[-2]
     xai_method = train_original_xai_path.split('\\')[-1]
@@ -224,7 +225,10 @@ def train(embedding_model="resnet50"):
 
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    if embedding_model == "vit":
+        optimizer = optim.AdamW(model.parameters(), lr=lr)
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=lr)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
     # test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)

@@ -307,14 +307,14 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
             elif attack == "robust":
                 perturbed_image, attack_meta_data = attack_algos.robust_fgsm(processed_image, model, model_type, cuda)
             elif attack == "carlini_wagner":
-                perturbed_image, attack_meta_data = attack_algos.carlini_wagner_attack(processed_image, model_type,
-                                                                                       model, cuda)
+                perturbed_image, attack_meta_data = attack_algos.carlini_wagner_attack(processed_image, model,
+                                                                                       model_type, cuda)
 
             # black-box attacks
             elif attack == "black_box":
                 perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model, model_type,
                                                                                   cuda, transform_set={},
-                                                                                  desired_acc=0.999999)
+                                                                                  desired_acc=0.999)
             elif attack == "black_box_robust":
                 perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model,
                                                                                   model_type, cuda,
@@ -428,8 +428,8 @@ if __name__ == '__main__':
         pbar_global = tqdm(total=len(videos))
         for video in videos:
             args.video_path = join(video_path, video)
-            blockPrint()
+            # blockPrint()
             create_adversarial_video(**vars(args))
-            enablePrint()
+            # enablePrint()
             pbar_global.update(1)
         pbar_global.close()

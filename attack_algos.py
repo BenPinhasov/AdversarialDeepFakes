@@ -222,6 +222,10 @@ def carlini_wagner_attack(input_img, model, model_type, cuda=True,
         x *= (1. - eps)
         return (torch.log((1 + x) / (1 - x))) * 0.5
 
+    if model_type == 'EfficientNetB4ST':
+        post_function = nn.Sigmoid()
+    else:
+        post_function = nn.Softmax(dim=1)
     attack_w = autograd.Variable(torch_arctanh(input_img.data - 1), requires_grad=True)
     bestl2 = 1e10
     bestscore = -1
@@ -234,7 +238,10 @@ def carlini_wagner_attack(input_img, model, model_type, cuda=True,
     for bsi in range(max_bs_iter):
         for iter_no in range(max_attack_iter):
             adv_image = 0.5 * (torch.tanh(input_img + attack_w) + 1.)
-            prediction, output, logits = predict_with_model(adv_image, model, model_type, cuda=cuda)
+            prediction, output, logits = predict_with_model(adv_image, model, model_type, cuda=cuda,
+                                                            post_function=post_function)
+            # if model_type == 'EfficientNetB4ST':
+            #     logits = nn.Softmax(dim=1)(logits)
             loss1 = torch.clamp(logits[0][1] - logits[0][0] + confidence, min=0.0)
             loss2 = torch.norm(adv_image - input_img, 2)
 
