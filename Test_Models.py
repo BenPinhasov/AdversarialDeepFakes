@@ -40,7 +40,7 @@ def main():
                 elif runs_dir.find('clip') != -1:
                     model = CustomClip()
                 for run in runs:
-                    if run.find('resnet50') != -1:
+                    if runs_dir.find('resnet50') != -1:
                         weights = ResNet50_Weights.DEFAULT
                         if run.find('True') != -1:  # check if dropout is true
                             model = CustomResNet50(weights=weights, dropout=True)
