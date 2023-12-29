@@ -321,6 +321,8 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
                                                                                   transform_set={"gauss_blur",
                                                                                                  "translation",
                                                                                                  "resize"})
+            elif attack == "l2_black_box":
+                perturbed_image, attack_meta_data = attack_algos.l2_black_box_attack(processed_image, model, model_type, cuda)
 
             # Undo the processing of xceptionnet, mesonet
             unpreprocessed_image = un_preprocess_image(perturbed_image, size)

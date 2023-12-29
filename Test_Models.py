@@ -21,6 +21,9 @@ def main():
 
     runs_main_dir = 'runs_clip_frozenFalse'
     detector_types = ['EfficientNetB4ST', 'xception']
+    runs_main_dir = 'runs_resnet50'
+    detector_types = ['EfficientNetB4ST']  # ['EfficientNetB4ST', 'xception']
+    attack_method = 'black_box'
     xai_methods_model = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
     xai_methods_dataset = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
     for xai_method in xai_methods_model:
@@ -30,8 +33,8 @@ def main():
                 runs_dir = f'{runs_main_dir}/{detector_type}/{xai_method}'
                 test_original_crops_path = rf'newDataset\Test\Frames\original\{detector_type}\original'
                 test_original_xai_path = rf'newDataset\Test\Frames\original\{detector_type}\{xai_method_dataset}'
-                test_attacked_path = rf'newDataset\Test\Frames\attacked\Deepfakes\{detector_type}\original'
-                test_attacked_xai_path = rf'newDataset\Test\Frames\attacked\Deepfakes\{detector_type}\{xai_method_dataset}'
+                test_attacked_path = rf'newDataset\Test\Frames\attacked\{attack_method}\Deepfakes\{detector_type}\original'
+                test_attacked_xai_path = rf'newDataset\Test\Frames\attacked\{attack_method}\Deepfakes\{detector_type}\{xai_method_dataset}'
 
                 runs = os.listdir(runs_dir)
                 run_bar = tqdm(total=len(runs))
@@ -48,7 +51,7 @@ def main():
                             model = CustomResNet50(weights=weights)
                     model.to(device)
                     working_path = os.path.join(runs_dir, run)
-                    f = open(os.path.join(working_path, f'best_model_acc_{xai_method_dataset}.txt'), 'w')
+                    f = open(os.path.join(working_path, f'best_model_acc_{xai_method_dataset}_{attack_method}.txt'), 'w')
                     model.load_state_dict(torch.load(os.path.join(working_path, 'best_model.pth')))
                     model.eval()
                     activation_function = nn.Softmax(dim=1)

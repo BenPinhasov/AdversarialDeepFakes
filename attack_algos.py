@@ -7,6 +7,8 @@ from dataset.transform import xception_default_data_transforms, mesonet_default_
 import robust_transforms as rt
 import random
 
+from zoo_l2_attack_black import l2_attack
+
 
 def predict_with_model(preprocessed_image, model, model_type, post_function=nn.Softmax(dim=1), cuda=True):
     """
@@ -405,3 +407,15 @@ def black_box_attack(input_img, model, model_type,
     }
 
     return input_var, meta_data
+
+
+def l2_black_box_attack(input_img, model, model_type,
+                        cuda=True, max_iter=100, alpha=1 / 255.0,
+                        eps=16 / 255.0, desired_acc=0.90):
+    target_var = autograd.Variable(torch.LongTensor([0])).cuda()
+    attack, score = l2_attack(input_img, target_var, model, targeted=True, use_log=True,
+                              use_tanh=True, solver="adam", reset_adam_after_found=True, abort_early=True,
+                              batch_size=1, max_iter=100, const=0.01, confidence=20.0, early_stop_iters=100,
+                              binary_search_steps=2,
+                              step_size=0.01, adam_beta1=0.9, adam_beta2=0.999)
+    return attack, score
