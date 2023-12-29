@@ -19,8 +19,6 @@ transform = transforms.Compose([
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    runs_main_dir = 'runs_clip_frozenFalse'
-    detector_types = ['EfficientNetB4ST', 'xception']
     runs_main_dir = 'runs_resnet50'
     detector_types = ['EfficientNetB4ST']  # ['EfficientNetB4ST', 'xception']
     attack_method = 'black_box'
