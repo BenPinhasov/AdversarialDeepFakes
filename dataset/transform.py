@@ -14,6 +14,7 @@ from torchvision.datasets import ImageFolder
 from torch.utils.data import Dataset, DataLoader
 from itertools import combinations
 from PIL import Image
+import torch
 
 
 class UnNormalize(object):
@@ -256,12 +257,15 @@ class SiameseDataset(Dataset):
 
 
 class ImageXaiFolder(Dataset):
-    def __init__(self, original_path, original_xai_path, attacked_path, attacked_xai_path, transform=None):
+    def __init__(self, original_path, original_xai_path, attacked_path, attacked_xai_path, transform=None, black_xai=False, black_img=False):
         super(ImageXaiFolder, self).__init__()
         self.original_path = original_path
         self.original_xai_path = original_xai_path
         self.attacked_path = attacked_path
         self.attacked_xai_path = attacked_xai_path
+
+        self.black_xai = black_xai
+        self.black_img = black_img
 
         original_paths = os.listdir(original_path)
         original_xai_paths = os.listdir(original_xai_path)
@@ -297,6 +301,10 @@ class ImageXaiFolder(Dataset):
         if self.transform is not None:
             image = self.transform(image)
             xai_map = self.transform(xai_map)
+            if self.black_xai:
+                xai_map = torch.zeros_like(xai_map)
+            if self.black_img:
+                image = torch.zeros_like(image)
 
         return image, xai_map, label
 
@@ -316,7 +324,8 @@ if __name__ == '__main__':
         original_xai_path=r'newDataset\Train\Frames\original\xception\GuidedBackprop',
         attacked_path=r'newDataset\Train\Frames\attacked\Deepfakes\xception\original',
         attacked_xai_path=r'newDataset\Train\Frames\attacked\Deepfakes\xception\GuidedBackprop',
-        transform=resenet_transform
+        transform=resenet_transform,
+        black_xai=True
     )
     train_loader = DataLoader(dataset, batch_size=16, shuffle=True)
     for image, xai_map, label in train_loader:
