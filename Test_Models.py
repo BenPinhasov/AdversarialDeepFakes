@@ -20,10 +20,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     runs_main_dir = 'runs_resnet50'
-    detector_types = ['EfficientNetB4ST']  # ['EfficientNetB4ST', 'xception']
+    detector_types = ['EfficientNetB4ST', 'xception']
     attack_method = 'black_box'
     xai_methods_model = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
     xai_methods_dataset = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
+    black_xai = True
+    black_img = False
     for xai_method in xai_methods_model:
         for detector_type in detector_types:
             for xai_method_dataset in xai_methods_dataset:
@@ -49,7 +51,7 @@ def main():
                             model = CustomResNet50(weights=weights)
                     model.to(device)
                     working_path = os.path.join(runs_dir, run)
-                    f = open(os.path.join(working_path, f'best_model_acc_{xai_method_dataset}_{attack_method}.txt'), 'w')
+                    f = open(os.path.join(working_path, f'best_model_acc_{xai_method_dataset}_{attack_method}_blackxai_{black_xai}_blackimg_{black_img}.txt'), 'w')
                     model.load_state_dict(torch.load(os.path.join(working_path, 'best_model.pth')))
                     model.eval()
                     activation_function = nn.Softmax(dim=1)
@@ -58,7 +60,9 @@ def main():
                                                   original_xai_path=test_original_xai_path,
                                                   attacked_path=test_attacked_path,
                                                   attacked_xai_path=test_attacked_xai_path,
-                                                  transform=transform)
+                                                  transform=transform,
+                                                  black_xai=black_xai,
+                                                  black_img=black_img)
                     test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
                     total_accuracy = 0.0
                     batch_bar = tqdm(total=len(test_loader))

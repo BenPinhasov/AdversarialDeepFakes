@@ -429,6 +429,9 @@ if __name__ == '__main__':
         videos = [video for video in videos if (video.endswith(".mp4") or video.endswith(".avi"))]
         pbar_global = tqdm(total=len(videos))
         for video in videos:
+            if os.path.exists(os.path.join(args.output_path, os.path.splitext(video)[0] + '_metrics_attack.json')):
+                print(f'Adversarial video already exists for {video}')
+                continue
             args.video_path = join(video_path, video)
             # blockPrint()
             create_adversarial_video(**vars(args))
