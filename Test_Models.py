@@ -19,12 +19,12 @@ transform = transforms.Compose([
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    runs_main_dir = 'runs_resnet50'
+    runs_main_dir = 'runs_resnet50_nograd'
     detector_types = ['EfficientNetB4ST', 'xception']
-    attack_method = 'black_box'
+    attack_method = 'apgd-ce'
     xai_methods_model = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
     xai_methods_dataset = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
-    black_xai = True
+    black_xai = False
     black_img = False
     for xai_method in xai_methods_model:
         for detector_type in detector_types:
