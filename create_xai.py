@@ -141,6 +141,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
     start_frame = 0
     end_frame = None
     frame_num = 0
+    no_face_count = 0
     assert start_frame < num_frames - 1
     end_frame = end_frame if end_frame else num_frames
     pbar = tqdm(total=end_frame - start_frame)
@@ -164,6 +165,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             p.start()
         xai_metrics[xai_method] = {
             'total_frames': 0,
+            'no_face_count': 0,
             'total_fake_predictions': [],
             'total_real_predictions': [],
             'prediction_list': [],
@@ -186,6 +188,9 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         faces = face_detector(gray, 1)
         if len(faces):
             face = faces[0]
+        else:
+            no_face_count += 1
+            continue
         x, y, size = get_boundingbox(face, width, height)
         cropped_face = image[y:y + size, x:x + size]
         preprocessed_image = preprocess_image(cropped_face, model_type)
@@ -218,6 +223,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         len_predictions = len(xai_metrics[xai_method]['prediction_list'])
         xai_metrics[xai_method]['total_fake_predictions'] = sum_of_fakes
         xai_metrics[xai_method]['total_real_predictions'] = len_predictions - sum_of_fakes
+        xai_metrics[xai_method]['no_face_count'] = no_face_count
         if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
             with open(os.path.join(output_path, model_type, xai_method, video_fn.replace(".avi", "_metrics.json")), "w") as f:
                 f.write(json.dumps(xai_metrics[xai_method]))

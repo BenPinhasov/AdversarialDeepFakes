@@ -124,7 +124,7 @@ EfficientNetB4ST_default_data_transforms = {
         transforms.ToTensor()
     ]),
     'normalize': transforms.Compose([
-        Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ]),
     'unnormalize': transforms.Compose([
         UnNormalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -162,7 +162,7 @@ xception_default_data_transforms = {
         transforms.ToTensor(),
     ]),
     'normalize': transforms.Compose([
-        Normalize([0.5] * 3, [0.5] * 3)
+        transforms.Normalize([0.5] * 3, [0.5] * 3)
     ]),
     'unnormalize': transforms.Compose([
         UnNormalize([0.5] * 3, [0.5] * 3)
