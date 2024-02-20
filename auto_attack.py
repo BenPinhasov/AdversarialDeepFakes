@@ -28,11 +28,11 @@ class ModelWrapper(nn.Module):
 
     def forward(self, x):
         if self.model_type == 'EfficientNetB4ST':
-            resized_image = nn.functional.interpolate(x.clone(), size=(224, 224), mode="bilinear", align_corners=True)
-            normalized_image = EfficientNetB4ST_default_data_transforms['normalize'](resized_image.clone())
+            resized_image = nn.functional.interpolate(x, size=(224, 224), mode="bilinear", align_corners=True)
+            normalized_image = EfficientNetB4ST_default_data_transforms['normalize'](resized_image)
         elif self.model_type == 'xception':
             resized_image = nn.functional.interpolate(x, size=(299, 299), mode="bilinear", align_corners=True)
-            normalized_image = xception_default_data_transforms['normalize'](resized_image.clone())
+            normalized_image = xception_default_data_transforms['normalize'](resized_image)
         return self.model(normalized_image)
 
 
@@ -78,7 +78,7 @@ class VideoLoader(Thread):
                     cropped_face = image[y:y + size, x:x + size]
                     cropped_face = cv2.cvtColor(cropped_face, cv2.COLOR_BGR2RGB)
                     cropped_face = EfficientNetB4ST_default_data_transforms['to_tensor'](cropped_face)
-                    cropped_face = cropped_face.unsqueeze(0).cuda()
+                    cropped_face = cropped_face.unsqueeze(0)
                     faces_list.append(cropped_face)
                     bb.append((x, y, size))
                     images_list.append(image)
@@ -117,8 +117,8 @@ def preprocess_image(image: np.array, model_type: str):
 
 
 def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attacked_faces_queue: Queue, end_event: Event,
-                 model_type: str, model, fps: int, video_path: str, bb_queue: Queue):
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                 model_type: str, fps: int, video_path: str, bb_queue: Queue):
+    fourcc = cv2.VideoWriter_fourcc(*'HFYU')
     video_fn = video_path.split('/')[-1].split('.')[0] + '.avi'
     file_path = join(output_path, video_fn)
     out = None
@@ -129,6 +129,16 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
         'percent_fake_frames': 0,
         'probs_list': [],
     }
+    device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
+    if model_type == 'xception':
+        model_path = 'models/all_c23.p'
+        model = torch.load(model_path)
+    elif model_type == 'EfficientNetB4ST':
+        model_path = 'models/EfficientNetB4ST_FFPP/bestval.pth'
+        model = model_selection('EfficientNetB4ST', 1)
+        weights = torch.load(model_path)
+        model.load_state_dict(weights)
+    m = model.to(device).eval()
     while not end_event.is_set() or frames_queue.qsize() > 0:
         attacked_batch = attacked_faces_queue.get()
         images_batch = frames_queue.get()
@@ -139,13 +149,14 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
         for frame, perturbed_image, (x, y, bb_size) in zip(images_batch, attacked_batch[attack_name][0], bb_batch):
             original_face = frame[y:y + bb_size, x:x + bb_size]
             unsqueezed_image = perturbed_image.unsqueeze(0)
-            print(f'pert image prediction: {nn.Softmax(dim=1)(ModelWrapper(model, model_type)(unsqueezed_image))}')
+            # print(f'pert image prediction: {nn.Softmax(dim=1)(ModelWrapper(model, model_type)(unsqueezed_image))}')
 
             # unpreprocess
             unprocessed_image = un_preprocess_image(perturbed_image)
 
             test = preprocess_image(unprocessed_image, model_type)
-            output = nn.Softmax(dim=1)(model(test)).detach().cpu().numpy().tolist()
+            test_output = m(test)
+            output = nn.Softmax(dim=1)(test_output).detach().cpu().numpy().tolist()
             prediction = output[0].index(max(output[0]))
             print('Prediction:', prediction, 'Output:', output)
 
@@ -209,7 +220,7 @@ def norm_epsilon(eps, preprocess_function, resize_size):
 if __name__ == '__main__':
     videos_path = 'newDataset/Test/fake/Deepfakes/'
     model_type = 'EfficientNetB4ST'
-    attack_name = 'apgd-ce'
+    attack_name = 'square'
     deepfake_type = 'Deepfakes'
     output_path = f'newDataset/Test/attacked/{attack_name}/{model_type}/{deepfake_type}'
     batch_size = 1
@@ -227,7 +238,7 @@ if __name__ == '__main__':
         model = model_selection('EfficientNetB4ST', 1)
         weights = torch.load(model_path)
         model.load_state_dict(weights)
-        p_init = 0.8
+        p_init = 0.3
     model_legacy = model.to(device).eval()
     model = ModelWrapper(model_legacy, model_type=model_type).eval()
     adversary = AutoAttack(model, norm='Linf', eps=eps, version='standard')
@@ -259,8 +270,7 @@ if __name__ == '__main__':
         fps = video_batch_thread.fps
         video_writer_thread = Thread(target=video_writer,
                                      args=(output_path, attack_name, images_queue,
-                                           adv_faces_queue, process_end_event, model_type, model_legacy,
-                                           int(fps), video_path, bb_queue,))
+                                           adv_faces_queue, process_end_event, model_type, int(fps), video_path, bb_queue,))
         video_writer_thread.start()
         # frame_writer_thread = Thread(target=frame_writer,
         #                              args=(output_path, attack_name, images_queue,
@@ -273,7 +283,7 @@ if __name__ == '__main__':
         while not end_event.is_set() or faces_queue.qsize() > 0:
             faces_batch = faces_queue.get()[0]
             labels = torch.ones(len(faces_batch), dtype=torch.long).to(device)
-            dict_adv = adversary.run_standard_evaluation_individual(faces_batch.clone(), labels, bs=len(faces_batch),
+            dict_adv = adversary.run_standard_evaluation_individual(faces_batch.cuda(), labels, bs=len(faces_batch),
                                                                     return_labels=True)
 
             dict_adv[attack_name] = (
