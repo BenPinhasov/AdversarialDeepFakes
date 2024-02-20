@@ -8,10 +8,12 @@ import dlib
 import torch
 from tqdm import tqdm
 
+from dataset.transform import EfficientNetB4ST_default_data_transforms, xception_default_data_transforms
 from detect_from_video import predict_with_model, get_boundingbox, preprocess_image
 
 torch.cuda.empty_cache()
 import torch.nn as nn
+from torchvision import transforms
 import os
 from os.path import join
 import sys
@@ -83,7 +85,7 @@ def load_model(model_type: str, model_path: str, cuda: bool):
                 model = model_selection('EfficientNetB4ST', 2)
                 weights = torch.load(model_path)
                 model.load_state_dict(weights)
-                post_function = nn.Sigmoid()
+                post_function = nn.Softmax(dim=1)
             else:
                 raise f"{model_type} not supported"
         print('Model found in {}'.format(model_path))
@@ -126,17 +128,65 @@ def video_writer_process(output_path, model_type, xai_method, video_fn, writer_d
     print(f'video writer process for {xai_method} method and video file name {video_fn} finished')
 
 
+def preprocess_image_square(image: np.array, model_type: str):
+    # unprocessed_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    unprocessed_image = image
+    if model_type == 'EfficientNetB4ST':
+        trans = transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Resize((224, 224)),
+            # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    elif model_type == 'xception':
+        trans = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((299, 299)),
+            transforms.Normalize([0.5] * 3, [0.5] * 3)
+        ])
+    unprocessed_image = trans(unprocessed_image).unsqueeze(0).cuda()
+    return unprocessed_image
+
+
+class ModelWrapper(nn.Module):
+    def __init__(self, model, model_type):
+        super(ModelWrapper, self).__init__()
+        self.model = model
+        self.model_type = model_type
+
+    def forward(self, x):
+        if self.model_type == 'EfficientNetB4ST':
+            resized_image = nn.functional.interpolate(x, size=(224, 224), mode="bilinear", align_corners=True)
+            normalized_image = EfficientNetB4ST_default_data_transforms['normalize'](resized_image)
+        elif self.model_type == 'xception':
+            resized_image = nn.functional.interpolate(x, size=(299, 299), mode="bilinear", align_corners=True)
+            normalized_image = xception_default_data_transforms['normalize'](resized_image)
+        return self.model(normalized_image)
+
+
+def predict_with_model_square(processed_image, model, post_function=None):
+    output = model(processed_image)
+    if post_function is not None:
+        output = post_function(output)
+        prediction = torch.argmax(output)
+        prediction = int(prediction.cpu().numpy())
+    output = output.detach().cpu().numpy().tolist()
+    return prediction, output
+
+
 def compute_attr(video_path, model_path, model_type, output_path, xai_methods, cuda):
     reader = cv2.VideoCapture(video_path)
     fps = reader.get(cv2.CAP_PROP_FPS)
     video_fn = os.path.basename(video_path).split('.')[0] + '.avi'
+    is_square = video_path.find('square') != -1
     num_frames = int(reader.get(cv2.CAP_PROP_FRAME_COUNT))
     if model_type == 'EfficientNetB4ST':
         writer_dim = (224, 224)
     else:
         writer_dim = (299, 299)
+
     face_detector = dlib.get_frontal_face_detector()
-    model, post_function = load_model(model_type, model_path, cuda)
+    model_legacy, post_function = load_model(model_type, model_path, cuda)
+    model = ModelWrapper(model_legacy, model_type)
     # Frame numbers and length of output video
     start_frame = 0
     end_frame = None
@@ -193,12 +243,19 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             continue
         x, y, size = get_boundingbox(face, width, height)
         cropped_face = image[y:y + size, x:x + size]
-        preprocessed_image = preprocess_image(cropped_face, model_type)
-        prediction, output = predict_with_model(cropped_face, model, model_type, post_function=post_function, cuda=cuda)
+        if is_square:
+            preprocessed_image = preprocess_image_square(cropped_face, model_type)
+            prediction, output = predict_with_model_square(preprocessed_image, model, post_function=post_function)
+        else:
+            preprocessed_image = preprocess_image(cropped_face, model_type)
+            prediction, output = predict_with_model(cropped_face, model, model_type, post_function=post_function,
+                                                    cuda=cuda)
+        print(f'prediction: {prediction} output: {output}')
         if prediction == 1:
             continue
         for xai_method in xai_methods:
-            if os.path.exists(os.path.join(output_path, model_type, xai_method, video_fn.replace(".avi", "_metrics.json"))):
+            if os.path.exists(
+                    os.path.join(output_path, model_type, xai_method, video_fn.replace(".avi", "_metrics.json"))):
                 print(f'metric file for {video_fn} exists. continue')
                 reader.release()
                 break_flag = True
@@ -225,7 +282,8 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         xai_metrics[xai_method]['total_real_predictions'] = len_predictions - sum_of_fakes
         xai_metrics[xai_method]['no_face_count'] = no_face_count
         if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
-            with open(os.path.join(output_path, model_type, xai_method, video_fn.replace(".avi", "_metrics.json")), "w") as f:
+            with open(os.path.join(output_path, model_type, xai_method, video_fn.replace(".avi", "_metrics.json")),
+                      "w") as f:
                 f.write(json.dumps(xai_metrics[xai_method]))
             print(f'Finished! Output saved under {os.path.join(output_path, xai_method)}')
             # writers[xai_method].release()
