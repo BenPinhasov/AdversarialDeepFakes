@@ -27,11 +27,12 @@ class ModelWrapper(nn.Module):
         self.model_type = model_type
 
     def forward(self, x):
+        image = x.clone()
         if self.model_type == 'EfficientNetB4ST':
-            resized_image = nn.functional.interpolate(x, size=(224, 224), mode="bilinear", align_corners=True)
+            resized_image = nn.functional.interpolate(image, size=(224, 224), mode="bilinear", align_corners=True)
             normalized_image = EfficientNetB4ST_default_data_transforms['normalize'](resized_image)
         elif self.model_type == 'xception':
-            resized_image = nn.functional.interpolate(x, size=(299, 299), mode="bilinear", align_corners=True)
+            resized_image = nn.functional.interpolate(image, size=(299, 299), mode="bilinear", align_corners=True)
             normalized_image = xception_default_data_transforms['normalize'](resized_image)
         return self.model(normalized_image)
 
@@ -76,6 +77,7 @@ class VideoLoader(Thread):
                     # Face crop with dlib and bounding box scale enlargement
                     x, y, size = get_boundingbox(face, width, height)
                     cropped_face = image[y:y + size, x:x + size]
+                    copy_cropped_face = cropped_face.copy()
                     cropped_face = cv2.cvtColor(cropped_face, cv2.COLOR_BGR2RGB)
                     cropped_face = EfficientNetB4ST_default_data_transforms['to_tensor'](cropped_face)
                     cropped_face = cropped_face.unsqueeze(0)
@@ -83,9 +85,10 @@ class VideoLoader(Thread):
                     bb.append((x, y, size))
                     images_list.append(image)
                 self.frame_count += 1
-            self.images_queue.put(images_list)
-            self.faces_queue.put(faces_list)
-            self.bb_queue.put(bb)
+            if len(faces_list):
+                self.images_queue.put(images_list)
+                self.faces_queue.put(faces_list)
+                self.bb_queue.put(bb)
         self.end_event.set()
         # return torch.cat(images_list), torch.cat(faces_tensor), torch.cat(bb)
 
@@ -112,7 +115,8 @@ def preprocess_image(image: np.array, model_type: str):
             transforms.Resize((299, 299)),
             transforms.Normalize([0.5] * 3, [0.5] * 3)
         ])
-    unprocessed_image = trans(unprocessed_image).unsqueeze(0).cuda()
+    unprocessed_image = trans(unprocessed_image)
+    unprocessed_image = unprocessed_image.unsqueeze(0)
     return unprocessed_image
 
 
@@ -139,6 +143,7 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
         weights = torch.load(model_path)
         model.load_state_dict(weights)
     m = model.to(device).eval()
+    post_function = nn.Softmax(dim=1)
     while not end_event.is_set() or frames_queue.qsize() > 0:
         attacked_batch = attacked_faces_queue.get()
         images_batch = frames_queue.get()
@@ -154,9 +159,11 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
             # unpreprocess
             unprocessed_image = un_preprocess_image(perturbed_image)
 
-            test = preprocess_image(unprocessed_image, model_type)
-            test_output = m(test)
-            output = nn.Softmax(dim=1)(test_output).detach().cpu().numpy().tolist()
+            test = preprocess_image(unprocessed_image, model_type).clone()
+            test = test.cuda()
+            test_output = m(test.cuda())
+            output = post_function(test_output)
+            output = output.detach().cpu().numpy().tolist()
             prediction = output[0].index(max(output[0]))
             print('Prediction:', prediction, 'Output:', output)
 
@@ -218,11 +225,12 @@ def norm_epsilon(eps, preprocess_function, resize_size):
 
 
 if __name__ == '__main__':
-    videos_path = 'newDataset/Test/fake/Deepfakes/'
-    model_type = 'EfficientNetB4ST'
-    attack_name = 'square'
+    dataset = 'Train'
+    videos_path = f'newDataset/{dataset}/fake/Deepfakes'
+    model_type = 'xception'
+    attack_name = 'apgd-ce'
     deepfake_type = 'Deepfakes'
-    output_path = f'newDataset/Test/attacked/{attack_name}/{model_type}/{deepfake_type}'
+    output_path = f'E:/Dataset/{dataset}/attacked/{attack_name}/{model_type}/{deepfake_type}'
     batch_size = 1
     use_cuda = True
     eps = 16 / 255
@@ -238,7 +246,7 @@ if __name__ == '__main__':
         model = model_selection('EfficientNetB4ST', 1)
         weights = torch.load(model_path)
         model.load_state_dict(weights)
-        p_init = 0.3
+        p_init = 0.8
     model_legacy = model.to(device).eval()
     model = ModelWrapper(model_legacy, model_type=model_type).eval()
     adversary = AutoAttack(model, norm='Linf', eps=eps, version='standard')
@@ -247,13 +255,14 @@ if __name__ == '__main__':
     adversary.square.n_queries = 10000
     adversary.square.n_restarts = 1
     adversary.square.verbose = True
+    # adversary.apgd.verbose = True
     adversary.square.p_init = p_init
 
     os.makedirs(output_path, exist_ok=True)
     videos = os.listdir(videos_path)
 
     for video in videos:
-        video_path = join(videos_path, video)
+        video_path = join(videos_path, video).replace('\\', '/')
         if os.path.exists(os.path.join(output_path, os.path.splitext(video)[0] + '_metrics_attack.json')):
             print(f'Adversarial video already exists for {video}')
             continue
@@ -270,7 +279,8 @@ if __name__ == '__main__':
         fps = video_batch_thread.fps
         video_writer_thread = Thread(target=video_writer,
                                      args=(output_path, attack_name, images_queue,
-                                           adv_faces_queue, process_end_event, model_type, int(fps), video_path, bb_queue,))
+                                           adv_faces_queue, process_end_event, model_type, int(fps), video_path,
+                                           bb_queue,))
         video_writer_thread.start()
         # frame_writer_thread = Thread(target=frame_writer,
         #                              args=(output_path, attack_name, images_queue,
@@ -281,9 +291,11 @@ if __name__ == '__main__':
         number_of_batches = math.ceil(len(video_batch_thread) / batch_size)
         batch_bar = tqdm(total=number_of_batches)
         while not end_event.is_set() or faces_queue.qsize() > 0:
-            faces_batch = faces_queue.get()[0]
+            temp = faces_queue.get()
+            faces_batch = temp[0]
             labels = torch.ones(len(faces_batch), dtype=torch.long).to(device)
-            dict_adv = adversary.run_standard_evaluation_individual(faces_batch.cuda(), labels, bs=len(faces_batch),
+            faces_batch_cuda = faces_batch.clone().detach().to(device)
+            dict_adv = adversary.run_standard_evaluation_individual(faces_batch_cuda, labels, bs=len(faces_batch),
                                                                     return_labels=True)
 
             dict_adv[attack_name] = (

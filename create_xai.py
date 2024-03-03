@@ -129,13 +129,13 @@ def video_writer_process(output_path, model_type, xai_method, video_fn, writer_d
 
 
 def preprocess_image_square(image: np.array, model_type: str):
-    # unprocessed_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    unprocessed_image = image
+    unprocessed_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # unprocessed_image = image
     if model_type == 'EfficientNetB4ST':
         trans = transforms.Compose([
             transforms.ToTensor(),
-            # transforms.Resize((224, 224)),
-            # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Resize((224, 224)),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
     elif model_type == 'xception':
         trans = transforms.Compose([
@@ -146,21 +146,6 @@ def preprocess_image_square(image: np.array, model_type: str):
     unprocessed_image = trans(unprocessed_image).unsqueeze(0).cuda()
     return unprocessed_image
 
-
-class ModelWrapper(nn.Module):
-    def __init__(self, model, model_type):
-        super(ModelWrapper, self).__init__()
-        self.model = model
-        self.model_type = model_type
-
-    def forward(self, x):
-        if self.model_type == 'EfficientNetB4ST':
-            resized_image = nn.functional.interpolate(x, size=(224, 224), mode="bilinear", align_corners=True)
-            normalized_image = EfficientNetB4ST_default_data_transforms['normalize'](resized_image)
-        elif self.model_type == 'xception':
-            resized_image = nn.functional.interpolate(x, size=(299, 299), mode="bilinear", align_corners=True)
-            normalized_image = xception_default_data_transforms['normalize'](resized_image)
-        return self.model(normalized_image)
 
 
 def predict_with_model_square(processed_image, model, post_function=None):
@@ -185,8 +170,8 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
         writer_dim = (299, 299)
 
     face_detector = dlib.get_frontal_face_detector()
-    model_legacy, post_function = load_model(model_type, model_path, cuda)
-    model = ModelWrapper(model_legacy, model_type)
+    model, post_function = load_model(model_type, model_path, cuda)
+    # model = ModelWrapper(model_legacy, model_type)
     # Frame numbers and length of output video
     start_frame = 0
     end_frame = None
