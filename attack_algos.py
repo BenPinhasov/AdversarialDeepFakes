@@ -550,6 +550,8 @@ def adaptive_black_box_attack(input_img, deepfake_detector_model, deepfake_detec
                 del img1
                 del prediction1, probs_1
                 del prediction2, probs_2
+                del attacked_probs1
+                del attacked_probs2
 
         return (1. / (2. * num_samples * len(transform_functions) * sigma)) * g, _num_queries
 
