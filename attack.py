@@ -282,7 +282,7 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
         print('Model found in {}'.format(deepfake_detector_model_path))
     else:
         print('No deepfake_detector_model found, initializing random deepfake_detector_model.')
-    if attack == "adaptive_iterative_fgsm":
+    if attack.find('adaptive') != -1:
         attacked_detector_model = CustomResNet50(weights=ResNet50_Weights.DEFAULT)
         attacked_detector_model.load_state_dict(torch.load(attacked_detector_model_path))
         xai_calculator = eval(f'{xai_method}')(deepfake_detector_model)
@@ -291,7 +291,7 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
         deepfake_detector_model = deepfake_detector_model.eval().cuda()
         for param in deepfake_detector_model.parameters():
             param.requires_grad = True
-        if attack == "adaptive_iterative_fgsm":
+        if attack.find('adaptive') != -1:
             attacked_detector_model = attacked_detector_model.eval().cuda()
             for param in attacked_detector_model.parameters():
                 param.requires_grad = True
@@ -309,7 +309,7 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
     end_frame = end_frame if end_frame else num_frames
     pbar = tqdm(total=end_frame - start_frame)
 
-    if attack == "adaptive_iterative_fgsm":
+    if attack.find('adaptive') != -1:
         metrics = {
             'total_fake_real_frames': 0,
             'total_real_real_frames': 0,
@@ -386,6 +386,16 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
                                                                                          xai_method=xai_method,
                                                                                          crop_size=size,
                                                                                          attacked_detector_model=attacked_detector_model)
+            elif attack == "adaptive_black_box":
+                perturbed_image, attack_meta_data = attack_algos.adaptive_black_box_attack(input_img=processed_image,
+                                                                                           deepfake_detector_model=deepfake_detector_model,
+                                                                                           deepfake_detector_model_type=deepfake_detector_model_type,
+                                                                                           attacked_detector_model=attacked_detector_model,
+                                                                                           xai_calculator=xai_calculator,
+                                                                                           xai_method=xai_method,
+                                                                                           crop_size=size,
+                                                                                           cuda=cuda, transform_set={},
+                                                                                           desired_acc=0.999)
             elif attack == "iterative_fgsm":
                 perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image,
                                                                                 deepfake_detector_model,
@@ -445,11 +455,12 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
             # print(f'original_class: {prediction2}, new_class: {prediction}')
             # cv2.imshow('side-by-side', concat_crops)
             # cv2.waitKey(1)
-            if attack == "adaptive_iterative_fgsm":
+            if attack.find('adaptive') != -1:
                 xai_map = calculate_xai_map(cropped_face, deepfake_detector_model, deepfake_detector_model_type,
                                             xai_calculator,
                                             xai_method, cuda=cuda)
-                attacked_prediction, attacked_output, _ = check_attacked(processed_image, xai_map, attacked_detector_model)
+                attacked_prediction, attacked_output, _ = check_attacked(processed_image, xai_map,
+                                                                         attacked_detector_model)
 
                 print(">>>>Prediction LEGACY for frame no. {}: deepfake: {} attacked: {}".format(frame_num, output,
                                                                                                  attacked_output))
