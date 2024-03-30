@@ -107,8 +107,8 @@ def main():
             print ("ATTACKING", video)
             attack.create_adversarial_video(
                 video_path = video_path,
-                model_path = model_path,
-                model_type = model_type,
+                deepfake_detector_model_path= model_path,
+                deepfake_detector_model_type= model_type,
                 output_path = adversarial_folder_path,
                 start_frame = 0,
                 end_frame = args.end_frame,

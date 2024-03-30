@@ -161,7 +161,7 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
 
             test = preprocess_image(unprocessed_image, model_type).clone()
             test = test.cuda()
-            test_output = m(test.cuda())
+            test_output = m(test)
             output = post_function(test_output)
             output = output.detach().cpu().numpy().tolist()
             prediction = output[0].index(max(output[0]))
@@ -228,7 +228,7 @@ if __name__ == '__main__':
     dataset = 'Train'
     videos_path = f'newDataset/{dataset}/fake/Deepfakes'
     model_type = 'xception'
-    attack_name = 'apgd-ce'
+    attack_name = 'square'
     deepfake_type = 'Deepfakes'
     output_path = f'E:/Dataset/{dataset}/attacked/{attack_name}/{model_type}/{deepfake_type}'
     batch_size = 1

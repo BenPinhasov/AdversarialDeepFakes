@@ -29,6 +29,9 @@ import numpy
 from torchvision import transforms
 import attack_algos
 import json
+from torchvision.models import ResNet50_Weights
+from xai_classification import CustomResNet50
+from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
 
 # I don't recommend this, but I like clean terminal output.
 import warnings
@@ -142,6 +145,37 @@ def un_preprocess_image(image, size):
     return new_image
 
 
+def check_attacked(preprocessed_image, xai_map, model, post_function=nn.Softmax(dim=1), cuda=True):
+    """
+    Adapted predict_for_model for attack. Differentiable image pre-processing.
+    Predicts the label of an input image. Performs resizing and normalization before feeding in image.
+
+    :param image: torch tenosr (bs, c, h, w)
+    :param model: torch model with linear layer at the end
+    :param post_function: e.g., softmax
+    :param cuda: enables cuda, must be the same parameter as the model
+    :return: prediction (1 = attacked, 0 = real), output probs, logits
+    """
+
+    # Model prediction
+
+    # differentiable resizing: doing resizing here instead of preprocessing
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    normalized_image = transform(preprocessed_image)
+    normalized_xai = transform(xai_map)
+    logits = model(normalized_image.float().cuda(), normalized_xai.float().cuda())
+    output = post_function(logits)
+    _, prediction = torch.max(output, 1)  # argmax
+    prediction = float(prediction.cpu().numpy())
+    output = output.detach().cpu().numpy().tolist()
+    # print ("prediction", prediction)
+    # print ("output", output)
+    return int(prediction), output, logits
+
+
 def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax(dim=1),
                               cuda=True):
     """
@@ -174,21 +208,39 @@ def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax
     return int(prediction), output
 
 
-def create_adversarial_video(video_path, model_path, model_type, output_path,
+def calculate_xai_map(cropped_face, model, model_type, xai_calculator, xai_method, cuda=True):
+    preprocessed_image = preprocess_image(cropped_face, model_type)
+    prediction, output = predict_with_model_legacy(cropped_face, model, model_type, post_function=nn.Softmax(dim=1),
+                                                   cuda=cuda)
+    if xai_method == 'IntegratedGradients':
+        xai_img = xai_calculator.attribute(preprocessed_image, target=prediction, internal_batch_size=1)
+    else:
+        xai_img = xai_calculator.attribute(preprocessed_image, target=prediction)
+    return xai_img
+
+
+def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_detector_model_type, output_path,
+                             xai_method=None, attacked_detector_model_path=None,
                              start_frame=0, end_frame=None, attack="iterative_fgsm",
                              compress=True, cuda=True, showlabel=True):
     """
-    Reads a video and evaluates a subset of frames with the a detection network
+    Reads a video and evaluates a subset of frames with the detection network
     that takes in a full frame. Outputs are only given if a face is present
     and the face is highlighted using dlib.
+    :param compress:
+    :param showlabel:
+    :param adaptive_attack:
+    :param xai_method:
+    :param atttacked_detector_model_path:
     :param video_path: path to video file
-    :param model_path: path to model file (should expect the full sized image)
+    :param deepfake_detector_model_path: path to deepfake_detector_model file (should expect the full sized image)
     :param output_path: path where the output video is stored
     :param start_frame: first frame to evaluate
     :param end_frame: last frame to evaluate
     :param cuda: enable cuda
     :return:
     """
+    xai_map = None
     print('Starting: {}'.format(video_path))
 
     # Read and write
@@ -210,31 +262,39 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
     # Face detector
     face_detector = dlib.get_frontal_face_detector()
 
-    # Load model
-    if model_path is not None:
+    # Load deepfake detector deepfake_detector_model
+    if deepfake_detector_model_path is not None:
         if not cuda:
-            model = torch.load(model_path, map_location="cpu")
+            deepfake_detector_model = torch.load(deepfake_detector_model_path, map_location="cpu")
         else:
-            if model_type == 'meso':
-                model = model_selection(model_type, 2)[0]
-                weights = torch.load(model_path)
-                model.load_state_dict(weights)
-            elif model_type == 'xception':
-                model = torch.load(model_path)
-            elif model_type == 'EfficientNetB4ST':
-                model = model_selection('EfficientNetB4ST', 2)
-                weights = torch.load(model_path)
-                model.load_state_dict(weights)
+            if deepfake_detector_model_type == 'meso':
+                deepfake_detector_model = model_selection(deepfake_detector_model_type, 2)[0]
+                weights = torch.load(deepfake_detector_model_path)
+                deepfake_detector_model.load_state_dict(weights)
+            elif deepfake_detector_model_type == 'xception':
+                deepfake_detector_model = torch.load(deepfake_detector_model_path)
+            elif deepfake_detector_model_type == 'EfficientNetB4ST':
+                deepfake_detector_model = model_selection('EfficientNetB4ST', 2)
+                weights = torch.load(deepfake_detector_model_path)
+                deepfake_detector_model.load_state_dict(weights)
             else:
-                raise f"{model_type} not supported"
-        print('Model found in {}'.format(model_path))
+                raise f"{deepfake_detector_model_type} not supported"
+        print('Model found in {}'.format(deepfake_detector_model_path))
     else:
-        print('No model found, initializing random model.')
+        print('No deepfake_detector_model found, initializing random deepfake_detector_model.')
+    if attack == "adaptive_iterative_fgsm":
+        attacked_detector_model = CustomResNet50(weights=ResNet50_Weights.DEFAULT)
+        attacked_detector_model.load_state_dict(torch.load(attacked_detector_model_path))
+        xai_calculator = eval(f'{xai_method}')(deepfake_detector_model)
     if cuda:
         print("Converting mode to cuda")
-        model = model.eval().cuda()
-        for param in model.parameters():
+        deepfake_detector_model = deepfake_detector_model.eval().cuda()
+        for param in deepfake_detector_model.parameters():
             param.requires_grad = True
+        if attack == "adaptive_iterative_fgsm":
+            attacked_detector_model = attacked_detector_model.eval().cuda()
+            for param in attacked_detector_model.parameters():
+                param.requires_grad = True
         print("Converted to cuda")
 
     # raise Exception()
@@ -249,16 +309,32 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
     end_frame = end_frame if end_frame else num_frames
     pbar = tqdm(total=end_frame - start_frame)
 
-    metrics = {
-        'total_fake_frames': 0,
-        'total_real_frames': 0,
-        'total_frames': 0,
-        'percent_fake_frames': 0,
-        'probs_list': [],
-        'attack_meta_data': [],
-    }
+    if attack == "adaptive_iterative_fgsm":
+        metrics = {
+            'total_fake_real_frames': 0,
+            'total_real_real_frames': 0,
+            'total_fake_attacked_frames': 0,
+            'total_real_attacked_frames': 0,
+            'total_frames': 0,
+            'precent_fake_real': 0,
+            'percent_fake_attacked': 0,
+            'percent_real_real': 0,
+            'percent_real_attacked': 0,
+            'probs_list': [],
+            'attacked_detector_probs_list': [],
+            'attack_meta_data': [],
+        }
+    else:
+        metrics = {
+            'total_fake_frames': 0,
+            'total_real_frames': 0,
+            'total_frames': 0,
+            'percent_fake_frames': 0,
+            'probs_list': [],
+            'attack_meta_data': [],
+        }
 
-    if model_type == 'EfficientNetB4ST':
+    if deepfake_detector_model_type == 'EfficientNetB4ST':
         post_function = nn.Sigmoid()
     else:
         post_function = nn.Softmax(dim=1)
@@ -296,33 +372,53 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
             x, y, size = get_boundingbox(face, width, height)
             cropped_face = image[y:y + size, x:x + size]
             original_cropped_face = cropped_face
-            processed_image = preprocess_image(cropped_face, model_type, cuda=cuda)
+            processed_image = preprocess_image(cropped_face, deepfake_detector_model_type, cuda=cuda)
 
             # Attack happening here
 
             # white-box attacks
-            if attack == "iterative_fgsm":
-                perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image, model, model_type,
+            if attack == "adaptive_iterative_fgsm":
+                perturbed_image, attack_meta_data = attack_algos.adaptive_iterative_fgsm(input_img=processed_image,
+                                                                                         deepfake_model=deepfake_detector_model,
+                                                                                         deepfake_model_type=deepfake_detector_model_type,
+                                                                                         cuda=cuda,
+                                                                                         xai_calculator=xai_calculator,
+                                                                                         xai_method=xai_method,
+                                                                                         crop_size=size,
+                                                                                         attacked_detector_model=attacked_detector_model)
+            elif attack == "iterative_fgsm":
+                perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image,
+                                                                                deepfake_detector_model,
+                                                                                deepfake_detector_model_type,
                                                                                 cuda)
             elif attack == "robust":
-                perturbed_image, attack_meta_data = attack_algos.robust_fgsm(processed_image, model, model_type, cuda)
+                perturbed_image, attack_meta_data = attack_algos.robust_fgsm(processed_image, deepfake_detector_model,
+                                                                             deepfake_detector_model_type, cuda)
             elif attack == "carlini_wagner":
-                perturbed_image, attack_meta_data = attack_algos.carlini_wagner_attack(processed_image, model,
-                                                                                       model_type, cuda)
+                perturbed_image, attack_meta_data = attack_algos.carlini_wagner_attack(processed_image,
+                                                                                       deepfake_detector_model,
+                                                                                       deepfake_detector_model_type,
+                                                                                       cuda)
 
             # black-box attacks
             elif attack == "black_box":
-                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model, model_type,
+                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image,
+                                                                                  deepfake_detector_model,
+                                                                                  deepfake_detector_model_type,
                                                                                   cuda, transform_set={},
                                                                                   desired_acc=0.999)
             elif attack == "black_box_robust":
-                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image, model,
-                                                                                  model_type, cuda,
+                perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image,
+                                                                                  deepfake_detector_model,
+                                                                                  deepfake_detector_model_type, cuda,
                                                                                   transform_set={"gauss_blur",
                                                                                                  "translation",
                                                                                                  "resize"})
             elif attack == "l2_black_box":
-                perturbed_image, attack_meta_data = attack_algos.l2_black_box_attack(processed_image, model, model_type, cuda)
+                perturbed_image, attack_meta_data = attack_algos.l2_black_box_attack(processed_image,
+                                                                                     deepfake_detector_model,
+                                                                                     deepfake_detector_model_type,
+                                                                                     cuda)
 
             # Undo the processing of xceptionnet, mesonet
             unpreprocessed_image = un_preprocess_image(perturbed_image, size)
@@ -330,34 +426,58 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
             unpreprocessed_cropped_face = cropped_face
 
             cropped_face = image[y:y + size, x:x + size]
-            processed_image = preprocess_image(cropped_face, model_type, cuda=cuda)
-            prediction, output, logits = attack_algos.predict_with_model(processed_image, model, model_type, cuda=cuda,
+            processed_image = preprocess_image(cropped_face, deepfake_detector_model_type, cuda=cuda)
+            prediction, output, logits = attack_algos.predict_with_model(processed_image, deepfake_detector_model,
+                                                                         deepfake_detector_model_type, cuda=cuda,
                                                                          post_function=post_function)
             new_classification = prediction
             print(">>>>Prediction for frame no. {}: {}".format(frame_num, output))
 
-            prediction, output = predict_with_model_legacy(cropped_face, model, model_type, cuda=cuda,
+            prediction, output = predict_with_model_legacy(cropped_face, deepfake_detector_model,
+                                                           deepfake_detector_model_type, cuda=cuda,
                                                            post_function=post_function)
-
             print(">>>>Prediction LEGACY for frame no. {}: {}".format(frame_num, output))
 
-            # prediction2, output2 = predict_with_model_legacy(original_cropped_face, model, model_type, cuda=cuda,
+            # prediction2, output2 = predict_with_model_legacy(original_cropped_face, deepfake_detector_model, model_type, cuda=cuda,
             #                                                  post_function=post_function)
             # old_classification = prediction2
             # concat_crops = cv2.hconcat([original_cropped_face, unpreprocessed_image])
             # print(f'original_class: {prediction2}, new_class: {prediction}')
             # cv2.imshow('side-by-side', concat_crops)
             # cv2.waitKey(1)
+            if attack == "adaptive_iterative_fgsm":
+                xai_map = calculate_xai_map(cropped_face, deepfake_detector_model, deepfake_detector_model_type,
+                                            xai_calculator,
+                                            xai_method, cuda=cuda)
+                attacked_prediction, attacked_output, _ = check_attacked(processed_image, xai_map, attacked_detector_model)
 
-            label = 'fake' if prediction == 1 else 'real'
-            if label == 'fake':
-                metrics['total_fake_frames'] += 1.
+                print(">>>>Prediction LEGACY for frame no. {}: deepfake: {} attacked: {}".format(frame_num, output,
+                                                                                                 attacked_output))
+                deepfake_label = 'fake' if prediction == 1 else 'real'
+                attacked_label = 'attacked' if attacked_prediction == 1 else 'real'
+                if deepfake_label == 'fake' and attacked_label == 'attacked':
+                    metrics['total_fake_attacked_frames'] += 1.
+                elif deepfake_label == 'fake' and attacked_label == 'real':
+                    metrics['total_fake_real_frames'] += 1.
+                elif deepfake_label == 'real' and attacked_label == 'attacked':
+                    metrics['total_real_attacked_frames'] += 1.
+                elif deepfake_label == 'real' and attacked_label == 'real':
+                    metrics['total_real_real_frames'] += 1.
+                metrics['total_frames'] += 1.
+                metrics['probs_list'].append(output[0])
+                metrics['attacked_detector_probs_list'].append(attacked_output[0])
+                metrics['attack_meta_data'].append(attack_meta_data)
+
             else:
-                metrics['total_real_frames'] += 1.
+                label = 'fake' if prediction == 1 else 'real'
+                if label == 'fake':
+                    metrics['total_fake_frames'] += 1.
+                else:
+                    metrics['total_real_frames'] += 1.
 
-            metrics['total_frames'] += 1.
-            metrics['probs_list'].append(output[0])
-            metrics['attack_meta_data'].append(attack_meta_data)
+                metrics['total_frames'] += 1.
+                metrics['probs_list'].append(output[0])
+                metrics['attack_meta_data'].append(attack_meta_data)
 
             if showlabel:
                 # Text and bb
@@ -383,7 +503,10 @@ def create_adversarial_video(video_path, model_path, model_type, output_path,
         writer.write(image)
     pbar.close()
 
-    metrics['percent_fake_frames'] = metrics['total_fake_frames'] / metrics['total_frames']
+    metrics['percent_fake_real'] = metrics['total_fake_real_frames'] / metrics['total_frames']
+    metrics['percent_fake_attacked'] = metrics['total_fake_attacked_frames'] / metrics['total_frames']
+    metrics['percent_real_real'] = metrics['total_real_real_frames'] / metrics['total_frames']
+    metrics['percent_real_attacked'] = metrics['total_real_attacked_frames'] / metrics['total_frames']
 
     with open(join(output_path, video_fn.replace(".avi", "_metrics_attack.json")), "w") as f:
         f.write(json.dumps(metrics))
@@ -408,10 +531,11 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--video_path', '-i', type=str)
-    p.add_argument('--model_path', '-mi', type=str, default=None)
-    p.add_argument('--model_type', '-mt', type=str, default="xception")
-    p.add_argument('--output_path', '-o', type=str,
-                   default='.')
+    p.add_argument('--deepfake_detector_model_path', '-mi', type=str, default=None)
+    p.add_argument('--deepfake_detector_model_type', '-mt', type=str, default="xception")
+    p.add_argument('--output_path', '-o', type=str, default='.')
+    p.add_argument('--xai_method', '-x', type=str, default=None)
+    p.add_argument('--attacked_detector_model_path', '-ma', type=str, default=None)
     p.add_argument('--start_frame', type=int, default=0)
     p.add_argument('--end_frame', type=int, default=None)
     p.add_argument('--attack', '-a', type=str, default="iterative_fgsm")
