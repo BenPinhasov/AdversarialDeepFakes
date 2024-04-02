@@ -72,6 +72,57 @@ def summarize_videos(work_dir=None, models_names=[], majority_vote_thresholds=[]
     return summery_table, stats
 
 
+def summarize_videos_adaptive_attacks(work_dir=None, models_names=[], majority_vote_thresholds=[],
+                                      groundtruth_classification=None):
+    table_columns = ['file_name',
+                     'detection_model',
+                     'total_fake_real_frames',
+                     'total_real_real_frames',
+                     'total_fake_attacked_frames',
+                     'total_real_attacked_frames',
+                     'precent_fake_real_frames',
+                     'percent_fake_attacked_frames',
+                     'percent_real_real_frames',
+                     'percent_real_attacked_frames',
+                     'classification',
+                     'ground_truth_classification']
+    summery_table = pd.DataFrame(columns=table_columns)
+    fake_real_path = '/Deepfakes'
+    row = dict.fromkeys(table_columns, None)
+    for model_name, majority_vote_threshold in zip(models_names, majority_vote_thresholds):
+        json_files = glob.glob(f'{work_dir + model_name + fake_real_path}/*.json')
+        for json_path in json_files:
+            with open(json_path) as f:
+                file_name = os.path.basename(json_path)
+                data = json.load(f)
+                row['file_name'] = file_name
+                row['detection_model'] = model_name
+                row['total_fake_real_frames'] = data['total_fake_real_frames']
+                row['total_fake_attacked_frames'] = data['total_fake_attacked_frames']
+                row['total_real_real_frames'] = data['total_real_real_frames']
+                row['total_real_attacked_frames'] = data['total_real_attacked_frames']
+                row['percent_fake_real_frame'] = data['percent_fake_real']
+                row['percent_fake_attacked_frame'] = data['percent_fake_attacked']
+                row['percent_real_real_frame'] = data['percent_real_real']
+                row['percent_real_attacked_frame'] = data['percent_real_attacked']
+                row['total_frames'] = data['total_frames']
+                if data['percent_real_real'] > majority_vote_threshold:
+                    row['classification'] = 'real_real'
+                elif data['percent_fake_attacked'] > majority_vote_threshold:
+                    row['classification'] = 'fake_attacked'
+                elif data['percent_fake_real'] > majority_vote_threshold:
+                    row['classification'] = 'fake_real'
+                elif data['percent_real_attacked'] > majority_vote_threshold:
+                    row['classification'] = 'real_attacked'
+
+                row['ground_truth_classification'] = 'fake' if 'fake' == groundtruth_classification else 'real'
+                summery_table = pd.concat([summery_table, pd.DataFrame([row])], ignore_index=True)
+    stats = {}
+    for model_name in models_names:
+        stats[model_name] = calc_videos_stats_adaptive(df=summery_table, model_name=model_name)
+    return summery_table, stats
+
+
 def summarize_frames(work_dir=None, models_names=[], groundtruth_classification=None):
     table_columns = ['file_name', 'frame_id', 'detection_model', 'detector_classification',
                      'ground_truth_classification',
@@ -103,6 +154,83 @@ def summarize_frames(work_dir=None, models_names=[], groundtruth_classification=
     return summery_table, stats
 
 
+def summarize_frames_adaptive_attacks(work_dir=None, models_names=[], groundtruth_classification=None):
+    table_columns = ['file_name',
+                     'frame_id',
+                     'detection_model',
+                     'ground_truth_classification',
+                     'percent_real_real_frame',
+                     'percent_real_attacked_frame',
+                     'percent_fake_real_frame',
+                     'percent_fake_attacked_frame',
+                     'classification']
+
+    fake_real_path = '/Deepfakes'
+    row = dict.fromkeys(table_columns, None)
+    summery_table_row_list = []
+    for model_name in models_names:
+        json_files = glob.glob(f'{work_dir + model_name + fake_real_path}/*.json')
+        if json_files:
+            for json_path in json_files:
+                with open(json_path) as f:
+                    file_name = os.path.basename(json_path)
+                    data = json.load(f)
+                    for i, (probs, attacked_probs) in enumerate(zip(data['probs_list'], data['attacked_detector_probs_list'])):
+                        row['file_name'] = file_name
+                        row["frame_id"] = i
+                        row['detection_model'] = model_name
+                        deepfake_detector_classifiction = 'fake' if probs.index(max(probs)) == 1 else 'real'
+                        attacked_detector_classification = 'attacked' if attacked_probs.index(max(attacked_probs)) == 1 else 'real'
+                        row['classification'] = f"{deepfake_detector_classifiction}_{attacked_detector_classification}"
+                        row['ground_truth_classification'] = 'fake' if 'fake' == groundtruth_classification else 'real'
+                        summery_table_row_list.append(row.copy())
+    summery_table = pd.DataFrame.from_records(summery_table_row_list)
+    stats = {}
+    for model_name in models_names:
+        if not summery_table.empty:
+            stats[model_name] = calc_frames_stats_adaptive(df=summery_table, model_name=model_name)
+    return summery_table, stats
+
+
+def calc_videos_stats_adaptive(df, model_name=None):
+    assert model_name is not None, "must input model name"
+    model_rows = df.loc[df.detection_model == model_name]
+    mean_real_real_frames_percent = model_rows.percent_real_real_frame.mean()
+    mean_real_attacked_frames_percent = model_rows.percent_real_attacked_frame.mean()
+    mean_fake_real_frames_percent = model_rows.percent_fake_real_frame.mean()
+    mean_fake_attacked_frames_percent = model_rows.percent_fake_attacked_frame.mean()
+    mean_total_frame = (model_rows.total_frames).mean()
+    real_real_count = (model_rows.classification == 'real_real').sum()
+    real_attacked_count = (model_rows.classification == 'real_attacked').sum()
+    fake_real_count = (model_rows.classification == 'fake_real').sum()
+    fake_attacked_count = (model_rows.classification == 'fake_attacked').sum()
+
+    real_real_precision = real_real_count / model_rows.shape[0]
+    real_attacked_precision = real_attacked_count / model_rows.shape[0]
+    fake_real_precision = fake_real_count / model_rows.shape[0]
+    fake_attacked_precision = fake_attacked_count / model_rows.shape[0]
+
+    total_fake_vids = (model_rows.ground_truth_classification == 'fake').sum()
+    total_real_vids = (model_rows.ground_truth_classification == 'real').sum()
+    total_dict = {"mean_real_real_frames_percent": mean_real_real_frames_percent,
+                  "mean_real_attacked_frames_percent": mean_real_attacked_frames_percent,
+                  "mean_fake_real_frames_percent": mean_fake_real_frames_percent,
+                  "mean_fake_attacked_frames_percent": mean_fake_attacked_frames_percent,
+                  "mean_total_frame": mean_total_frame,
+                  "real_real_count": real_real_count,
+                  "real_attacked_count": real_attacked_count,
+                  "fake_real_count": fake_real_count,
+                  "fake_attacked_count": fake_attacked_count,
+                  "real_real_precision": real_real_precision,
+                  "real_attacked_precision": real_attacked_precision,
+                  "fake_real_precision": fake_real_precision,
+                  "fake_attacked_precision": fake_attacked_precision,
+                  "total_fake_videos": total_fake_vids,
+                  "total_real_videos": total_real_vids
+                  }
+    return pd.Series(data=total_dict)
+
+
 def calc_videos_stats(df, model_name=None):
     assert model_name is not None, "must input model name"
     model_rows = df.loc[df.detection_model == model_name]
@@ -125,6 +253,31 @@ def calc_videos_stats(df, model_name=None):
                   "total_fake_videos": total_fake_vids,
                   "total_real_videos": total_real_vids
                   }
+    return pd.Series(data=total_dict)
+
+
+def calc_frames_stats_adaptive(df, model_name=None):
+    assert model_name is not None, "must input model name"
+    model_rows = df.loc[df.detection_model == model_name]
+    real_real_count = (model_rows.classification == 'real_real').sum()
+    real_attacked_count = (model_rows.classification == 'real_attacked').sum()
+    fake_real_count = (model_rows.classification == 'fake_real').sum()
+    fake_attacked_count = (model_rows.classification == 'fake_attacked').sum()
+    real_real_precision = real_real_count / model_rows.shape[0]
+    real_attacked_precision = real_attacked_count / model_rows.shape[0]
+    fake_real_precision = fake_real_count / model_rows.shape[0]
+    fake_attacked_precision = fake_attacked_count / model_rows.shape[0]
+    total_dict = {
+                  "real_real_count": real_real_count,
+                  "real_attacked_count": real_attacked_count,
+                  "fake_real_count": fake_real_count,
+                  "fake_attacked_count": fake_attacked_count,
+                  "real_real_precision": real_real_precision,
+                  "real_attacked_precision": real_attacked_precision,
+                  "fake_real_precision": fake_real_precision,
+                  "fake_attacked_precision": fake_attacked_precision,
+                  }
+
     return pd.Series(data=total_dict)
 
 
@@ -209,13 +362,13 @@ if __name__ == '__main__':
     #                                                                groundtruth_classification='fake')
 
     # attacked videos subset
-    attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames(work_dir=attacked_data_path,
-                                                                           models_names=models_names,
-                                                                           groundtruth_classification='fake')
-    attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos(work_dir=attacked_data_path,
-                                                                           models_names=models_names,
-                                                                           majority_vote_thresholds=majority_vote_thresholds,
-                                                                           groundtruth_classification='fake')
+    # attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames(work_dir=attacked_data_path,
+    #                                                                        models_names=models_names,
+    #                                                                        groundtruth_classification='fake')
+    # attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos(work_dir=attacked_data_path,
+    #                                                                        models_names=models_names,
+    #                                                                        majority_vote_thresholds=majority_vote_thresholds,
+    #                                                                        groundtruth_classification='fake')
     # calc_acc(real_frames_dataset_summ.loc[real_frames_dataset_summ.detection_model == "mesoNet"],
     #          fake_frames_dataset_summ.loc[fake_frames_dataset_summ.detection_model == "mesoNet"])
     # print("============Real Videos Dataset stats============")
@@ -261,6 +414,13 @@ if __name__ == '__main__':
     # print("=====EfficientNetB4ST=====")
     # print(fake_frames_stats['EfficientNetB4ST'])
     # print("\n\n")
+    attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames_adaptive_attacks(work_dir=attacked_data_path,
+                                                                                   models_names=models_names,
+                                                                                   groundtruth_classification='fake')
+    attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos_adaptive_attacks(work_dir=attacked_data_path,
+                                                                                            models_names=models_names,
+                                                                                            majority_vote_thresholds=majority_vote_thresholds,
+                                                                                            groundtruth_classification='fake')
 
     print("============Attacked Videos Dataset stats============")
     print("=====Xception=====")

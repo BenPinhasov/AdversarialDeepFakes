@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 from torch import autograd
 import torch
@@ -167,6 +169,62 @@ def robust_fgsm(input_img, model, model_type, cuda=True,
     return input_var, meta_data
 
 
+def xai_attack_iterative_fgsm(input_img, deepfake_model, deepfake_model_type, crop_size,
+                              xai_calculator, xai_method, cuda=True,
+                              max_iter=100, alpha=1 / 255.0, eps=16 / 255.0, desired_acc=0.99):
+    input_var = autograd.Variable(input_img, requires_grad=True)
+    post_function = nn.Softmax(dim=1)
+    first_xai_map = None
+    target_var = autograd.Variable(torch.LongTensor([0]))
+    if cuda:
+        target_var = target_var.cuda()
+
+    iter_no = 0
+    while iter_no < max_iter:
+        _, output_deepfake_detector, logits_deepfake_detector = predict_with_model(input_var, deepfake_model,
+                                                                                   deepfake_model_type,
+                                                                                   cuda=cuda,
+                                                                                   post_function=post_function)
+        unpreprocessed_image = un_preprocess_image(input_var, crop_size)
+        xai_map = calculate_xai_map(unpreprocessed_image, deepfake_model, deepfake_model_type,
+                                    xai_calculator, xai_method, cuda=cuda)
+        if first_xai_map is None:
+            first_xai_map = xai_map.detach().clone()
+
+        if (output_deepfake_detector[0][0]) > desired_acc:
+            break
+        loss_criterion = nn.CrossEntropyLoss()
+        loss1 = loss_criterion(logits_deepfake_detector, target_var)
+        loss_criterion2 = nn.MSELoss()
+        loss2 = loss_criterion2(xai_map, first_xai_map)
+        loss = loss1 + loss2
+        if input_var.grad is not None:
+            input_var.grad.data.zero_()  # just to ensure nothing funny happens
+        loss.backward()
+
+        step_adv = input_var.detach() - alpha * torch.sign(input_var.grad.detach())
+        total_pert = step_adv - input_img
+        total_pert = torch.clamp(total_pert, -eps, eps)
+
+        input_adv = input_img + total_pert
+        input_adv = torch.clamp(input_adv, 0, 1)
+
+        input_var.data = input_adv.detach()
+
+        iter_no += 1
+
+    l_inf_norm = torch.max(torch.abs((input_var - input_img))).item()
+    print("L infinity norm", l_inf_norm, l_inf_norm * 255.0)
+
+    meta_data = {
+        'attack_iterations': iter_no,
+        'l_inf_norm': l_inf_norm,
+        'l_inf_norm_255': round(l_inf_norm * 255.0)
+    }
+
+    return input_var, meta_data
+
+
 def adaptive_iterative_fgsm(input_img, deepfake_model, deepfake_model_type, attacked_detector_model, crop_size,
                             xai_calculator, xai_method, cuda=True,
                             max_iter=100, alpha=1 / 255.0, eps=16 / 255.0, desired_acc=0.99):
@@ -195,7 +253,7 @@ def adaptive_iterative_fgsm(input_img, deepfake_model, deepfake_model_type, atta
                                                                                cuda=cuda,
                                                                                post_function=post_function)
 
-        if ((output_deepfake_detector[0][0] - output_deepfake_detector[0][1])) > desired_acc and (
+        if (output_deepfake_detector[0][0]) > desired_acc and (
                 output_attacked_detector[0][0] > 0.9):
             break
         loss_criterion = nn.CrossEntropyLoss()
@@ -517,41 +575,43 @@ def adaptive_black_box_attack(input_img, deepfake_detector_model, deepfake_detec
         return transform_list
 
     def _find_nes_gradient(input_var, transform_functions, deepfake_detector_model, deepfake_detector_model_type,
-                           attacked_detector_model, xai_calculator, crop_size, xai_method, num_samples=20, sigma=0.001):
+                           attacked_detector_model, xai_calculator, crop_size, xai_method, num_samples=10, sigma=0.001):
         g = 0
         _num_queries = 0
         for sample_no in range(num_samples):
-            for transform_func in transform_functions:
-                rand_noise = torch.randn_like(input_var)
-                img1 = input_var + sigma * rand_noise
-                img2 = input_var - sigma * rand_noise
+            #for transform_func in transform_functions:
+            rand_noise = torch.randn_like(input_var)
+            img1 = input_var + sigma * rand_noise
+            img2 = input_var - sigma * rand_noise
 
-                unprocessed_img1 = un_preprocess_image(img1, crop_size)
-                unprocessed_img2 = un_preprocess_image(img2, crop_size)
-                xai1 = calculate_xai_map(unprocessed_img1, deepfake_detector_model, deepfake_detector_model_type,
-                                         xai_calculator, xai_method, cuda=cuda)
-                xai2 = calculate_xai_map(unprocessed_img2, deepfake_detector_model, deepfake_detector_model_type,
-                                         xai_calculator, xai_method, cuda=cuda)
-
-                _, attacked_probs1, _ = check_attacked(img1, xai1, attacked_detector_model, cuda=cuda)
-                _, attacked_probs2, _ = check_attacked(img2, xai2, attacked_detector_model, cuda=cuda)
-                prediction1, probs_1, _ = predict_with_model(transform_func(img1), deepfake_detector_model,
+            unprocessed_img1 = un_preprocess_image(img1, crop_size)
+            unprocessed_img2 = un_preprocess_image(img2, crop_size)
+            xai1 = calculate_xai_map(unprocessed_img1, deepfake_detector_model, deepfake_detector_model_type,
+                                     xai_calculator, xai_method, cuda=cuda)
+            xai2 = calculate_xai_map(unprocessed_img2, deepfake_detector_model, deepfake_detector_model_type,
+                                     xai_calculator, xai_method, cuda=cuda)
+            with torch.no_grad():
+                _, attacked_probs1, _ = check_attacked((img1), xai1, attacked_detector_model,
+                                                       cuda=cuda)
+                _, attacked_probs2, _ = check_attacked((img2), xai2, attacked_detector_model,
+                                                       cuda=cuda)
+                prediction1, probs_1, _ = predict_with_model((img1), deepfake_detector_model,
                                                              deepfake_detector_model_type, cuda=cuda)
 
-                prediction2, probs_2, _ = predict_with_model(transform_func(img2), deepfake_detector_model,
+                prediction2, probs_2, _ = predict_with_model((img2), deepfake_detector_model,
                                                              deepfake_detector_model_type, cuda=cuda)
 
-                _num_queries += 2
-                g = g + (probs_1[0][0] + attacked_probs1[0][0]) * rand_noise
-                g = g - (probs_2[0][0] + attacked_probs2[0][0]) * rand_noise
-                g = g.data.detach()
+            _num_queries += 2
+            g = g + (probs_1[0][0] + attacked_probs1[0][0]) * rand_noise
+            g = g - (probs_2[0][0] + attacked_probs2[0][0]) * rand_noise
+            g = g.data.detach()
 
-                del rand_noise
-                del img1
-                del prediction1, probs_1
-                del prediction2, probs_2
-                del attacked_probs1
-                del attacked_probs2
+            del rand_noise
+            del img1
+            del prediction1, probs_1
+            del prediction2, probs_2
+            del attacked_probs1
+            del attacked_probs2
 
         return (1. / (2. * num_samples * len(transform_functions) * sigma)) * g, _num_queries
 
@@ -569,12 +629,14 @@ def adaptive_black_box_attack(input_img, deepfake_detector_model, deepfake_detec
     while iter_no < max_iter:
 
         if not warm_start_done:
-            _, output, _ = predict_with_model(input_var, deepfake_detector_model, deepfake_detector_model_type,
-                                              cuda=cuda)
+            with torch.no_grad():
+                _, output, _ = predict_with_model(input_var, deepfake_detector_model, deepfake_detector_model_type,
+                                                  cuda=cuda)
             unprocessed_img = un_preprocess_image(input_var, crop_size)
             xai = calculate_xai_map(unprocessed_img, deepfake_detector_model, deepfake_detector_model_type,
-                                     xai_calculator, xai_method, cuda=cuda)
-            _, attacked_probs, _ = check_attacked(input_var, xai, attacked_detector_model, cuda=cuda)
+                                    xai_calculator, xai_method, cuda=cuda)
+            with torch.no_grad():
+                _, attacked_probs, _ = check_attacked(input_var, xai, attacked_detector_model, cuda=cuda)
             num_queries += 1
             if (output[0][0] > desired_acc) and (attacked_probs[0][0] > 0.9):
                 warm_start_done = True
@@ -588,12 +650,14 @@ def adaptive_black_box_attack(input_img, deepfake_detector_model, deepfake_detec
         all_fooled = True
         print("Testing transformation outputs", iter_no)
         for transform_fn in transform_functions:
-            _, output, _ = predict_with_model(transform_fn(input_var), deepfake_detector_model,
-                                              deepfake_detector_model_type, cuda=cuda)
+            with torch.no_grad():
+                _, output, _ = predict_with_model(transform_fn(input_var), deepfake_detector_model,
+                                                  deepfake_detector_model_type, cuda=cuda)
             unprocessed_img = un_preprocess_image(input_var, crop_size)
             xai = calculate_xai_map(unprocessed_img, deepfake_detector_model, deepfake_detector_model_type,
                                     xai_calculator, xai_method, cuda=cuda)
-            _, attacked_probs, _ = check_attacked(input_var, xai, attacked_detector_model, cuda=cuda)
+            with torch.no_grad():
+                _, attacked_probs, _ = check_attacked(transform_fn(input_var), xai, attacked_detector_model, cuda=cuda)
             num_queries += 1
             print(output)
             print(attacked_probs)
@@ -604,6 +668,7 @@ def adaptive_black_box_attack(input_img, deepfake_detector_model, deepfake_detec
         if warm_start_done and all_fooled:
             break
 
+        t_start = time.time()
         step_gradient_estimate, _num_grad_calc_queries = _find_nes_gradient(input_var=input_var,
                                                                             transform_functions=transform_functions,
                                                                             deepfake_detector_model=deepfake_detector_model,
@@ -612,6 +677,7 @@ def adaptive_black_box_attack(input_img, deepfake_detector_model, deepfake_detec
                                                                             xai_calculator=xai_calculator,
                                                                             crop_size=crop_size,
                                                                             xai_method=xai_method)
+        print(f'Gradient calculation time: {time.time() - t_start}')
         num_queries += _num_grad_calc_queries
         step_adv = input_var.detach() + alpha * torch.sign(step_gradient_estimate.data.detach())
         total_pert = step_adv - input_img

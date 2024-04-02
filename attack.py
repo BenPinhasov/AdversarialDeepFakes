@@ -377,7 +377,16 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
             # Attack happening here
 
             # white-box attacks
-            if attack == "adaptive_iterative_fgsm":
+            if attack == 'xai_adaptive_attack_iterative_fgsm':
+                perturbed_image, attack_meta_data = attack_algos.xai_attack_iterative_fgsm(input_img=processed_image,
+                                                                                           deepfake_model=deepfake_detector_model,
+                                                                                           deepfake_model_type=deepfake_detector_model_type,
+                                                                                           cuda=cuda,
+                                                                                           xai_calculator=xai_calculator,
+                                                                                           xai_method=xai_method,
+                                                                                           crop_size=size,
+                                                                                           max_iter=1)
+            elif attack == "adaptive_iterative_fgsm":
                 perturbed_image, attack_meta_data = attack_algos.adaptive_iterative_fgsm(input_img=processed_image,
                                                                                          deepfake_model=deepfake_detector_model,
                                                                                          deepfake_model_type=deepfake_detector_model_type,
@@ -385,7 +394,8 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
                                                                                          xai_calculator=xai_calculator,
                                                                                          xai_method=xai_method,
                                                                                          crop_size=size,
-                                                                                         attacked_detector_model=attacked_detector_model)
+                                                                                         attacked_detector_model=attacked_detector_model,
+                                                                                         max_iter=1)
             elif attack == "adaptive_black_box":
                 perturbed_image, attack_meta_data = attack_algos.adaptive_black_box_attack(input_img=processed_image,
                                                                                            deepfake_detector_model=deepfake_detector_model,
@@ -395,7 +405,8 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
                                                                                            xai_method=xai_method,
                                                                                            crop_size=size,
                                                                                            cuda=cuda, transform_set={},
-                                                                                           desired_acc=0.999)
+                                                                                           desired_acc=0.999,
+                                                                                           max_iter=20)
             elif attack == "iterative_fgsm":
                 perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image,
                                                                                 deepfake_detector_model,
