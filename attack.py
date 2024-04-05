@@ -145,6 +145,30 @@ def un_preprocess_image(image, size):
     return new_image
 
 
+def un_preprocess_image_batch(images_batch, size):
+    """
+    Tensor to PIL image and RGB to BGR
+    """
+    image_list = []
+    for i in range(images_batch.shape[0]):
+        image = images_batch[i]
+        image.detach()
+        new_image = image.squeeze(0)
+        new_image = new_image.detach().cpu()
+
+        undo_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize(size)
+        ])
+
+        new_image = undo_transform(new_image)
+        new_image = numpy.array(new_image)
+
+        new_image = cv2.cvtColor(new_image, cv2.COLOR_RGB2BGR)
+        image_list.append(new_image)
+    return image_list
+
+
 def check_attacked(preprocessed_image, xai_map, model, post_function=nn.Softmax(dim=1), cuda=True):
     """
     Adapted predict_for_model for attack. Differentiable image pre-processing.
@@ -175,6 +199,40 @@ def check_attacked(preprocessed_image, xai_map, model, post_function=nn.Softmax(
     # print ("output", output)
     return int(prediction), output, logits
 
+
+def check_attacked_batch(preprocessed_images, xai_maps, model, post_function=nn.Softmax(dim=1), cuda=True):
+    """
+    Adapted predict_for_model for attack. Differentiable image pre-processing.
+    Predicts the label of input images in batch. Performs resizing and normalization before feeding in images.
+
+    :param preprocessed_images: torch tensor containing preprocessed images (batch_size, c, h, w)
+    :param xai_maps: torch tensor containing XAI maps (batch_size, c, h, w)
+    :param model: torch model with linear layer at the end
+    :param post_function: e.g., softmax
+    :param cuda: boolean specifying whether to move tensors to CUDA
+    :return: predictions (1 = attacked, 0 = real), output probs, logits
+    """
+    # Differentiable resizing
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
+    normalized_images = torch.stack([transform(image) for image in preprocessed_images])
+    normalized_xais = torch.stack([transform(xai_map) for xai_map in xai_maps])
+
+    if cuda:
+        normalized_images = normalized_images.cuda()
+        normalized_xais = normalized_xais.cuda()
+
+    # Model prediction
+    logits = model(normalized_images.float(), normalized_xais.float())
+    output = post_function(logits)
+    _, predictions = torch.max(output, 1)  # argmax
+    predictions = predictions.detach()
+    output = output.detach()
+
+    return predictions, output, logits
 
 def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax(dim=1),
                               cuda=True):
@@ -207,6 +265,47 @@ def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax
         output = output.detach().cpu().numpy().tolist()
     return int(prediction), output
 
+def predict_with_model_legacy_batch(images, model, model_type, post_function=nn.Softmax(dim=1),
+                                    cuda=True):
+    """
+    Predicts the label of input images in batch. Preprocesses the input images and
+    casts them to cuda if required.
+
+    :param images: numpy array of images
+    :param model: torch model with linear layer at the end
+    :param model_type: string specifying the model type
+    :param preprocess_func: function to preprocess the images in batch
+    :param post_function: e.g., softmax
+    :param cuda: boolean specifying whether to move tensors to CUDA
+    :return: predictions (1 = fake, 0 = real) and corresponding outputs
+    """
+    batch_size = len(images)
+    preprocessed_images = preprocess_image_batch(images, model_type, cuda, legacy=True)
+
+    # Model prediction
+    output = model(preprocessed_images)
+    output = post_function(output)
+
+    predictions = []
+    outputs = []
+
+    for i in range(batch_size):
+        if model_type == 'EfficientNetB4ST':
+            fake_pred = output[i][1].item()
+            real_pred = 1 - fake_pred
+            output_i = np.array([real_pred, fake_pred])
+            prediction = float(np.argmax(output_i))
+            output_i = [output_i.tolist()]
+        else:
+            _, prediction = torch.max(output[i], 0)  # argmax
+            prediction = float(prediction.cpu().numpy())
+            output_i = output[i].detach().cpu().numpy().tolist()
+
+        predictions.append(int(prediction))
+        outputs.append(output_i)
+
+    return predictions, outputs
+
 
 def calculate_xai_map(cropped_face, model, model_type, xai_calculator, xai_method, cuda=True):
     preprocessed_image = preprocess_image(cropped_face, model_type)
@@ -217,6 +316,68 @@ def calculate_xai_map(cropped_face, model, model_type, xai_calculator, xai_metho
     else:
         xai_img = xai_calculator.attribute(preprocessed_image, target=prediction)
     return xai_img
+
+
+def preprocess_image_batch(images, model_type, cuda=True, legacy=False):
+    """
+    Preprocesses the images such that they can be fed into our network.
+    During this process, we convert each image to a PIL image and apply
+    preprocessing transformations specific to each model type.
+
+    :param images: numpy array of images in opencv form (i.e., BGR and of shape [batch_size, height, width, channels])
+    :param model_type: string specifying the model type
+    :param cuda: boolean specifying whether to move tensors to CUDA
+    :param legacy: boolean specifying whether to use legacy preprocessing
+    :return: pytorch tensor of shape [batch_size, 3, image_size, image_size], possibly casted to CUDA
+    """
+    batch_size = len(images)
+    preprocessed_images = []
+
+    for i in range(batch_size):
+        image = images[i]
+
+        # Revert from BGR
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        if not legacy:
+            if model_type == 'meso' or model_type == 'xception':
+                preprocess = xception_default_data_transforms['to_tensor']
+                preprocessed_image = preprocess(pil_image.fromarray(image))
+            elif model_type == 'EfficientNetB4ST':
+                preprocess = EfficientNetB4ST_default_data_transforms['to_tensor']
+                preprocessed_image = preprocess(pil_image.fromarray(image))
+        else:
+            if model_type == "xception":
+                preprocess = xception_default_data_transforms['test']
+                preprocessed_image = preprocess(pil_image.fromarray(image))
+            elif model_type == "meso":
+                preprocess = mesonet_default_data_transforms['test']
+                preprocessed_image = preprocess(pil_image.fromarray(image))
+            elif model_type == 'EfficientNetB4ST':
+                preprocess = EfficientNetB4ST_default_data_transforms['test']
+                preprocessed_image = preprocess(pil_image.fromarray(image))
+
+        preprocessed_images.append(preprocessed_image)
+
+    preprocessed_images = torch.stack(preprocessed_images)
+
+    if cuda:
+        preprocessed_images = preprocessed_images.cuda()
+
+    preprocessed_images.requires_grad = True
+    return preprocessed_images
+
+
+def calculate_xai_map_batch(cropped_faces, model, model_type, xai_calculator, xai_method, cuda=True):
+    preprocessed_images = preprocess_image_batch(cropped_faces, model_type, cuda=cuda)
+
+    predictions, outputs = predict_with_model_legacy_batch(cropped_faces, model, model_type, post_function=nn.Softmax(dim=1),
+                                                     cuda=cuda)
+    if xai_method == 'IntegratedGradients':
+        xai_imgs = xai_calculator.attribute(preprocessed_images, target=predictions, internal_batch_size=1)
+    else:
+        xai_imgs = xai_calculator.attribute(preprocessed_images, target=predictions)
+    return xai_imgs
 
 
 def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_detector_model_type, output_path,
@@ -397,7 +558,7 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
                                                                                          attacked_detector_model=attacked_detector_model,
                                                                                          max_iter=1)
             elif attack == "adaptive_black_box":
-                perturbed_image, attack_meta_data = attack_algos.adaptive_black_box_attack(input_img=processed_image,
+                perturbed_image, attack_meta_data = attack_algos.adaptive_black_box_attack_batches(input_img=processed_image,
                                                                                            deepfake_detector_model=deepfake_detector_model,
                                                                                            deepfake_detector_model_type=deepfake_detector_model_type,
                                                                                            attacked_detector_model=attacked_detector_model,

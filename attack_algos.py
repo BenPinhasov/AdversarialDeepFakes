@@ -5,7 +5,8 @@ from torch import autograd
 import torch
 import torch.nn as nn
 
-from attack import un_preprocess_image, calculate_xai_map, check_attacked
+from attack import un_preprocess_image, calculate_xai_map, check_attacked, un_preprocess_image_batch, \
+    calculate_xai_map_batch, check_attacked_batch
 from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms, \
     EfficientNetB4ST_default_data_transforms
 import robust_transforms as rt
@@ -63,6 +64,58 @@ def predict_with_model(preprocessed_image, model, model_type, post_function=nn.S
     # print ("prediction", prediction)
     # print ("output", output)
     return int(prediction), output, logits
+
+
+def predict_with_model_batch(preprocessed_images, model, model_type, post_function=nn.Softmax(dim=1), cuda=True):
+    """
+    Adapted predict_for_model for attack. Differentiable image pre-processing.
+    Predicts the label of input images in batch. Performs resizing and normalization before feeding in images.
+
+    :param preprocessed_images: torch tensor containing preprocessed images (batch_size, c, h, w)
+    :param model: torch model with linear layer at the end
+    :param model_type: string specifying the model type
+    :param post_function: e.g., softmax
+    :param cuda: boolean specifying whether to move tensors to CUDA
+    :return: predictions (1 = fake, 0 = real), output probs, logits
+    """
+    # Differentiable resizing
+    if model_type == "xception":
+        resized_images = nn.functional.interpolate(preprocessed_images, size=(299, 299), mode="bilinear",
+                                                   align_corners=True)
+        norm_transform = xception_default_data_transforms['normalize']
+        normalized_images = norm_transform(resized_images)
+    elif model_type == "meso":
+        resized_images = nn.functional.interpolate(preprocessed_images, size=(256, 256), mode="bilinear",
+                                                   align_corners=True)
+        norm_transform = mesonet_default_data_transforms['normalize']
+        normalized_images = norm_transform(resized_images)
+    elif model_type == 'EfficientNetB4ST':
+        resized_images = nn.functional.interpolate(preprocessed_images, size=(224, 224), mode="bilinear",
+                                                   align_corners=True)
+        norm_transform = EfficientNetB4ST_default_data_transforms['normalize']
+        normalized_images = norm_transform(resized_images)
+
+    logits = model(normalized_images)
+    output = post_function(logits)
+
+    predictions = []
+    outputs = []
+
+    # if model_type == 'EfficientNetB4ST':
+    #     for out in output:
+    #         fake_pred = out[1].item()
+    #         real_pred = 1 - fake_pred
+    #         out = np.array([real_pred, fake_pred])
+    #         prediction = float(np.argmax(out))
+    #         outputs.append([out.tolist()])
+    #         predictions.append(int(prediction))
+    #         output = torch.stack()
+    # else:
+    _, predictions = torch.max(output, 1)  # argmax
+    predictions = predictions.detach()
+    outputs = output.detach()
+
+    return predictions, outputs, logits
 
 
 def robust_fgsm(input_img, model, model_type, cuda=True,
@@ -747,9 +800,10 @@ def adaptive_black_box_attack_batches(input_img, deepfake_detector_model, deepfa
     def _find_nes_gradient(input_var, transform_functions, deepfake_detector_model, deepfake_detector_model_type,
                            attacked_detector_model, xai_calculator, crop_size, xai_method, num_samples=10, sigma=0.001):
         g = 0
+
         _num_queries = 0
         input_shape = input_var.shape[1:]
-        rand_noise = torch.randn(num_samples, num_samples, *input_shape, device=input_var.device) * sigma
+        rand_noise = torch.randn(num_samples, *input_shape, device=input_var.device) * sigma
 
         imgs1 = input_var.expand(num_samples, -1, -1, -1) + sigma * rand_noise
         imgs2 = input_var.expand(num_samples, -1, -1, -1) - sigma * rand_noise
@@ -762,54 +816,30 @@ def adaptive_black_box_attack_batches(input_img, deepfake_detector_model, deepfa
         xais2 = calculate_xai_map_batch(unprocessed_imgs2, deepfake_detector_model, deepfake_detector_model_type,
                                         xai_calculator, xai_method, cuda=cuda)
 
-        _, attacked_probs1, _ = check_attacked_batch(img1, xais1, deepfake_detector_model, cuda=cuda)
-        _, attacked_probs2, _ = check_attacked_batch(img2, xais2, deepfake_detector_model, cuda=cuda)
+        _, attacked_probs1, _ = check_attacked_batch(imgs1, xais1, attacked_detector_model, cuda=cuda)
+        _, attacked_probs2, _ = check_attacked_batch(imgs2, xais2, attacked_detector_model, cuda=cuda)
 
-        predictions1, probs1 = predict_with_model_batch(imgs1, deepfake_detector_model, deepfake_detector_model_type,
-                                                        cuda=cuda)
-        prediction2, probs2 = predict_with_model_batch(img2, deepfake_detector_model, deepfake_detector_model_type,
-                                                       cuda=cuda)
+        predictions1, probs1, _ = predict_with_model_batch(imgs1, deepfake_detector_model, deepfake_detector_model_type,
+                                                           cuda=cuda)
+        predictions2, probs2, _ = predict_with_model_batch(imgs2, deepfake_detector_model, deepfake_detector_model_type,
+                                                          cuda=cuda)
         _num_queries += 2 * num_samples
-
-        g = ((probs_1[:, :, 0] + attacked_probs1[:, :, 0]) - (
-                    probs_2[:, :, 0] + attacked_probs2[:, :, 0])) @ rand_noise.view(batch_size * num_samples, -1)
-        g = g.sum(dim=0).data.detach()
-        #TODO: Understand what is dims of g one the batch_Size is 1
-
-        for sample_no in range(num_samples):
-            # for transform_func in transform_functions:
-            rand_noise = torch.randn_like(input_var)
-            img1 = input_var + sigma * rand_noise
-            img2 = input_var - sigma * rand_noise
-
-            unprocessed_img1 = un_preprocess_image(img1, crop_size)
-            unprocessed_img2 = un_preprocess_image(img2, crop_size)
-            xai1 = calculate_xai_map(unprocessed_img1, deepfake_detector_model, deepfake_detector_model_type,
-                                     xai_calculator, xai_method, cuda=cuda)
-            xai2 = calculate_xai_map(unprocessed_img2, deepfake_detector_model, deepfake_detector_model_type,
-                                     xai_calculator, xai_method, cuda=cuda)
-            with torch.no_grad():
-                _, attacked_probs1, _ = check_attacked((img1), xai1, attacked_detector_model,
-                                                       cuda=cuda)
-                _, attacked_probs2, _ = check_attacked((img2), xai2, attacked_detector_model,
-                                                       cuda=cuda)
-                prediction1, probs_1, _ = predict_with_model((img1), deepfake_detector_model,
-                                                             deepfake_detector_model_type, cuda=cuda)
-
-                prediction2, probs_2, _ = predict_with_model((img2), deepfake_detector_model,
-                                                             deepfake_detector_model_type, cuda=cuda)
-
-            _num_queries += 2
-            g = g + (probs_1[0][0] + attacked_probs1[0][0]) * rand_noise
-            g = g - (probs_2[0][0] + attacked_probs2[0][0]) * rand_noise
-            g = g.data.detach()
-
-            del rand_noise
-            del img1
-            del prediction1, probs_1
-            del prediction2, probs_2
-            del attacked_probs1
-            del attacked_probs2
+        result_batch = []
+        for i in range(num_samples):  # Iterate over batch dimension
+            temp = (probs1[i, 0] + attacked_probs1[i, 0]) * rand_noise[i]
+            temp = temp - (probs2[i, 0] + attacked_probs2[i, 0]) * rand_noise[i]
+            result_batch.append(temp)
+        g = torch.stack(result_batch, dim=0).sum(dim=0).data.detach()
+        del rand_noise
+        del imgs1
+        del imgs2
+        del xais1
+        del xais2
+        del predictions1, probs1
+        del predictions2, probs2
+        del attacked_probs1
+        del attacked_probs2
+        # g = g.sum(dim=0).data.detach()
 
         return (1. / (2. * num_samples * len(transform_functions) * sigma)) * g, _num_queries
 
