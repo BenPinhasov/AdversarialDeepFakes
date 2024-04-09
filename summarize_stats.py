@@ -87,10 +87,10 @@ def summarize_videos_adaptive_attacks(work_dir=None, models_names=[], majority_v
                      'classification',
                      'ground_truth_classification']
     summery_table = pd.DataFrame(columns=table_columns)
-    fake_real_path = '/Deepfakes'
+    fake_real_path = 'Deepfakes/'
     row = dict.fromkeys(table_columns, None)
     for model_name, majority_vote_threshold in zip(models_names, majority_vote_thresholds):
-        json_files = glob.glob(f'{work_dir + model_name + fake_real_path}/*.json')
+        json_files = glob.glob(f'{work_dir + fake_real_path + model_name}/*.json')
         for json_path in json_files:
             with open(json_path) as f:
                 file_name = os.path.basename(json_path)
@@ -165,11 +165,11 @@ def summarize_frames_adaptive_attacks(work_dir=None, models_names=[], groundtrut
                      'percent_fake_attacked_frame',
                      'classification']
 
-    fake_real_path = '/Deepfakes'
+    fake_real_path = 'Deepfakes/'
     row = dict.fromkeys(table_columns, None)
     summery_table_row_list = []
     for model_name in models_names:
-        json_files = glob.glob(f'{work_dir + model_name + fake_real_path}/*.json')
+        json_files = glob.glob(f'{work_dir + fake_real_path + model_name}/*.json')
         if json_files:
             for json_path in json_files:
                 with open(json_path) as f:
