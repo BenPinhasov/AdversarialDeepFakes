@@ -382,7 +382,7 @@ def calculate_xai_map_batch(cropped_faces, model, model_type, xai_calculator, xa
 
 def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_detector_model_type, output_path,
                              xai_method=None, attacked_detector_model_path=None,
-                             start_frame=0, end_frame=None, attack="iterative_fgsm",
+                             start_frame=0, end_frame=None, attack="iterative_fgsm", eps=16/255,
                              compress=True, cuda=True, showlabel=True):
     """
     Reads a video and evaluates a subset of frames with the detection network
@@ -572,7 +572,16 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
                 perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image,
                                                                                 deepfake_detector_model,
                                                                                 deepfake_detector_model_type,
-                                                                                cuda)
+                                                                                max_iter=1,
+                                                                                eps=eps,
+                                                                                cuda=cuda)
+            elif attack == "pgd":
+                perturbed_image, attack_meta_data = attack_algos.iterative_fgsm(processed_image,
+                                                                                deepfake_detector_model,
+                                                                                deepfake_detector_model_type,
+                                                                                max_iter=100,
+                                                                                eps=eps,
+                                                                                cuda=cuda)
             elif attack == "robust":
                 perturbed_image, attack_meta_data = attack_algos.robust_fgsm(processed_image, deepfake_detector_model,
                                                                              deepfake_detector_model_type, cuda)
@@ -721,7 +730,8 @@ if __name__ == '__main__':
     p.add_argument('--attacked_detector_model_path', '-ma', type=str, default=None)
     p.add_argument('--start_frame', type=int, default=0)
     p.add_argument('--end_frame', type=int, default=None)
-    p.add_argument('--attack', '-a', type=str, default="iterative_fgsm")
+    p.add_argument('--attack', '-a', type=str, default="iterative_fgsm") # black_box / iterative_fgsm / pgd
+    p.add_argument('--eps', type=float, default=16/255) 
     p.add_argument('--compress', action='store_true')
     p.add_argument('--cuda', action='store_true')
     p.add_argument('--showlabel', action='store_true')  # add face labels in the generated video
@@ -745,3 +755,7 @@ if __name__ == '__main__':
             # enablePrint()
             pbar_global.update(1)
         pbar_global.close()
+
+
+# I need to execute:
+# 
