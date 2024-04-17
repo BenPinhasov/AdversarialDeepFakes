@@ -23,8 +23,29 @@ from network.models import model_selection
 from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Saliency, visualization
 from matplotlib import pyplot as plt, cm
 import numpy as np
-from attack import un_preprocess_image
 from multiprocessing import Process, Queue, Event
+
+
+def un_preprocess_image(image, size):
+    """
+    Tensor to PIL image and RGB to BGR
+    """
+
+    image.detach()
+    new_image = image.squeeze(0)
+    new_image = new_image.detach().cpu()
+
+    undo_transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize(size)
+    ])
+
+    new_image = undo_transform(new_image)
+    new_image = np.array(new_image)
+
+    new_image = cv2.cvtColor(new_image, cv2.COLOR_RGB2BGR)
+
+    return new_image
 
 
 def image_to_display(img, label=None, confidence=None, target=None):
@@ -145,7 +166,6 @@ def preprocess_image_square(image: np.array, model_type: str):
         ])
     unprocessed_image = trans(unprocessed_image).unsqueeze(0).cuda()
     return unprocessed_image
-
 
 
 def predict_with_model_square(processed_image, model, post_function=None):
