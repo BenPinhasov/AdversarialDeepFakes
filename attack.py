@@ -695,10 +695,13 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
         writer.write(image)
     pbar.close()
 
-    metrics['percent_fake_real'] = metrics['total_fake_real_frames'] / metrics['total_frames']
-    metrics['percent_fake_attacked'] = metrics['total_fake_attacked_frames'] / metrics['total_frames']
-    metrics['percent_real_real'] = metrics['total_real_real_frames'] / metrics['total_frames']
-    metrics['percent_real_attacked'] = metrics['total_real_attacked_frames'] / metrics['total_frames']
+    if attack.find('adaptive') != -1:
+        metrics['percent_fake_real'] = metrics['total_fake_real_frames'] / metrics['total_frames']
+        metrics['percent_fake_attacked'] = metrics['total_fake_attacked_frames'] / metrics['total_frames']
+        metrics['percent_real_real'] = metrics['total_real_real_frames'] / metrics['total_frames']
+        metrics['percent_real_attacked'] = metrics['total_real_attacked_frames'] / metrics['total_frames']
+    else:
+        metrics['percent_fake_frames'] = metrics['total_fake_frames'] / metrics['total_frames']
 
     with open(join(output_path, video_fn.replace(".avi", "_metrics_attack.json")), "w") as f:
         f.write(json.dumps(metrics))
