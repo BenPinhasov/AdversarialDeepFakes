@@ -596,7 +596,7 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
                 perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image,
                                                                                   deepfake_detector_model,
                                                                                   deepfake_detector_model_type,
-                                                                                  cuda, transform_set={},
+                                                                                  eps=eps, cuda=cuda, transform_set={},
                                                                                   desired_acc=0.999)
             elif attack == "black_box_robust":
                 perturbed_image, attack_meta_data = attack_algos.black_box_attack(processed_image,
