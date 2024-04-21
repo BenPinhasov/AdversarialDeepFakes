@@ -20,9 +20,9 @@ transform = transforms.Compose([
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    runs_main_dir = 'runs_resnet50'
+    runs_main_dir = 'runs_resnet50_nograd'
     detector_types = ['EfficientNetB4ST', 'xception']
-    attack_methods = ['square', 'apgd-ce', 'black_box', 'ifgs']
+    attack_methods = ['iterative_fgsm']  # ['square', 'apgd-ce', 'black_box', 'ifgs']
     xai_methods_model = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
     xai_methods_dataset = ['GuidedBackprop', 'InputXGradient', 'IntegratedGradients', 'Saliency']
     black_xai = False
@@ -58,7 +58,7 @@ def main():
                         model.to(device)
                         working_path = os.path.join(runs_dir, run)
                         f = open(os.path.join(working_path,
-                                              f'best_model_acc_{test_detector_type}_{xai_method_dataset}_{attack_method}_blackxai_{black_xai}_blackimg_{black_img}.txt'),
+                                              f'best_model_acc_{test_detector_type}_{xai_method_dataset}_{attack_method}_blackxai_{black_xai}.txt'),
                                  'w')
                         model.load_state_dict(torch.load(os.path.join(working_path, 'best_model.pth')))
                         model.eval()

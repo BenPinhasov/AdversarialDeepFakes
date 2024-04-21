@@ -1,18 +1,20 @@
 import time
 
-import numpy as np
 from torch import autograd
-import torch
-import torch.nn as nn
 
-from attack import un_preprocess_image, calculate_xai_map, check_attacked, un_preprocess_image_batch, \
-    calculate_xai_map_batch, check_attacked_batch
+
+# from attack import un_preprocess_image, calculate_xai_map, check_attacked, un_preprocess_image_batch, \
+#     calculate_xai_map_batch, check_attacked_batch
+from utils import *
 from dataset.transform import xception_default_data_transforms, mesonet_default_data_transforms, \
     EfficientNetB4ST_default_data_transforms
 import robust_transforms as rt
 import random
 
+
 from zoo_l2_attack_black import l2_attack
+
+
 
 
 def predict_with_model(preprocessed_image, model, model_type, post_function=nn.Softmax(dim=1), cuda=True):
@@ -822,7 +824,7 @@ def adaptive_black_box_attack_batches(input_img, deepfake_detector_model, deepfa
         predictions1, probs1, _ = predict_with_model_batch(imgs1, deepfake_detector_model, deepfake_detector_model_type,
                                                            cuda=cuda)
         predictions2, probs2, _ = predict_with_model_batch(imgs2, deepfake_detector_model, deepfake_detector_model_type,
-                                                          cuda=cuda)
+                                                           cuda=cuda)
         _num_queries += 2 * num_samples
         result_batch = []
         for i in range(num_samples):  # Iterate over batch dimension

@@ -362,13 +362,13 @@ if __name__ == '__main__':
     #                                                                groundtruth_classification='fake')
 
     # attacked videos subset
-    # attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames(work_dir=attacked_data_path,
-    #                                                                        models_names=models_names,
-    #                                                                        groundtruth_classification='fake')
-    # attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos(work_dir=attacked_data_path,
-    #                                                                        models_names=models_names,
-    #                                                                        majority_vote_thresholds=majority_vote_thresholds,
-    #                                                                        groundtruth_classification='fake')
+    attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames(work_dir=attacked_data_path,
+                                                                           models_names=models_names,
+                                                                           groundtruth_classification='fake')
+    attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos(work_dir=attacked_data_path,
+                                                                           models_names=models_names,
+                                                                           majority_vote_thresholds=majority_vote_thresholds,
+                                                                           groundtruth_classification='fake')
     # calc_acc(real_frames_dataset_summ.loc[real_frames_dataset_summ.detection_model == "mesoNet"],
     #          fake_frames_dataset_summ.loc[fake_frames_dataset_summ.detection_model == "mesoNet"])
     # print("============Real Videos Dataset stats============")
@@ -414,13 +414,13 @@ if __name__ == '__main__':
     # print("=====EfficientNetB4ST=====")
     # print(fake_frames_stats['EfficientNetB4ST'])
     # print("\n\n")
-    attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames_adaptive_attacks(work_dir=attacked_data_path,
-                                                                                   models_names=models_names,
-                                                                                   groundtruth_classification='fake')
-    attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos_adaptive_attacks(work_dir=attacked_data_path,
-                                                                                            models_names=models_names,
-                                                                                            majority_vote_thresholds=majority_vote_thresholds,
-                                                                                            groundtruth_classification='fake')
+    # attacked_frames_dataset_summ, attacked_frames_stats = summarize_frames_adaptive_attacks(work_dir=attacked_data_path,
+    #                                                                                models_names=models_names,
+    #                                                                                groundtruth_classification='fake')
+    #attacked_videos_dataset_summ, attacked_videos_stats = summarize_videos_adaptive_attacks(work_dir=attacked_data_path,
+    #                                                                                        models_names=models_names,
+    #                                                                                        majority_vote_thresholds=majority_vote_thresholds,
+    #                                                                                        groundtruth_classification='fake')
 
     print("============Attacked Videos Dataset stats============")
     print("=====Xception=====")

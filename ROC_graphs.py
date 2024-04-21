@@ -7,7 +7,7 @@ if __name__ == '__main__':
         rocs = pickle.load(f)
     efficientROCs = {key: rocs[key] for key in rocs.keys() if 'Efficient' in key}
     xceptionROCs = {key: rocs[key] for key in rocs.keys() if 'xception' in key}
-    attacks = ['square', 'apgd-ce', 'black_box', 'ifgs']
+    attacks = ['square', 'apgd-ce', 'black_box', 'ifgs', 'iterative_fgsm']
     detectors = ['EfficientNetB4ST', 'xception']
     detector_rocs = {detectors[0]: efficientROCs, detectors[1]: xceptionROCs}
     for detector in detectors:
@@ -31,6 +31,8 @@ if __name__ == '__main__':
                 attack = 'NES'
             elif attack == 'ifgs':
                 attack = 'PGD'
+            elif attack == 'iterative_fgsm':
+                attack = 'FGSM'
             elif attack == 'apgd-ce':
                 attack = 'APGD'
             elif attack == 'square':

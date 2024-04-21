@@ -225,15 +225,16 @@ def norm_epsilon(eps, preprocess_function, resize_size):
 
 
 if __name__ == '__main__':
-    dataset = 'Train'
+    dataset = 'Test'
     videos_path = f'newDataset/{dataset}/fake/Deepfakes'
     model_type = 'xception'
-    attack_name = 'square'
+    attack_name = 'apgd-ce'
     deepfake_type = 'Deepfakes'
-    output_path = f'E:/Dataset/{dataset}/attacked/{attack_name}/{model_type}/{deepfake_type}'
+    # output_path = f'E:/Dataset/{dataset}/attacked/{attack_name}/{model_type}/{deepfake_type}'
+    eps = 8 / 255
+    output_path = f'newDataset/{dataset}/attacked/{attack_name}_8_255/{model_type}/{deepfake_type}'
     batch_size = 1
     use_cuda = True
-    eps = 16 / 255
     device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
     if model_type == 'xception':
         face_size = 299
