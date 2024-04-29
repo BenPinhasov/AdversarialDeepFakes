@@ -10,7 +10,6 @@ import pretrainedmodels
 import torch.nn as nn
 import torch.nn.functional as F
 from network.xception import xception
-from network.classifier import Meso4, myMeso4
 import math
 import torchvision
 from network.fornet import EfficientNetB4ST
@@ -43,17 +42,6 @@ def return_pytorch04_xception(pretrained=True):
         del model.fc
     return model
 
-
-def return_pytorch04_meso():
-    model = Meso4()
-    # model = MesoInception4()
-    return model
-
-
-def return_pytorch04_mymeso():
-    model = myMeso4()
-    # model = MesoInception4()
-    return model
 
 
 class TransferModel(nn.Module):

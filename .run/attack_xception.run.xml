@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="attack_xception" type="PythonConfigurationType" factoryName="Python" singleton="false">
     <module name="AdversarialDeepFakes" />
+    <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
@@ -13,7 +14,7 @@
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/attack.py" />
-    <option name="PARAMETERS" value="--video_path newDataset\Test\fake\Deepfakes --model_path models\all_c23.p --model_type xception --output_path newDataset\Test\attacked\xception\Deepfakes --attack iterative_fgsm --cuda" />
+    <option name="PARAMETERS" value="--video_path newDataset\Test\fake\Deepfakes\videos --model_path models\all_c23.p --model_type xception --output_path newDataset\Test\attacked\pgd\xception\Deepfakes --attack pgd --cuda" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

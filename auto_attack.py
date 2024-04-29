@@ -180,50 +180,6 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
         f.write(json.dumps(metrics))
 
 
-def frame_writer(output_path: str, attack_name: str, frames_queue: Queue, attacked_faces_queue: Queue, end_event: Event,
-                 model_type: str, model, fps: int, video_path: str, bb_queue: Queue):
-    video_fn = video_path.split('/')[-1].split('.')[0]
-    file_path = join(output_path, video_fn)
-    metrics = {
-        'total_fake_frames': 0,
-        'total_real_frames': 0,
-        'total_frames': 0,
-        'percent_fake_frames': 0,
-        'probs_list': [],
-    }
-    while not end_event.is_set() or frames_queue.qsize() > 0:
-        attacked_batch = attacked_faces_queue.get()
-        images_batch = frames_queue.get()
-        bb_batch = bb_queue.get()
-        for frame, perturbed_image, (x, y, bb_size) in zip(images_batch, attacked_batch[attack_name][0], bb_batch):
-            torch.save(perturbed_image, file_path + f'_{metrics["total_frames"]}.pt')
-            save_image(perturbed_image, file_path + f'_{metrics["total_frames"]}.png')
-            unsqueezed_image = perturbed_image.unsqueeze(0)
-
-            unpreprocessed_image_pil, unpreprocessed_image_pil_numpy = un_preprocess_image2(unsqueezed_image, bb_size)
-            test2 = nn.Softmax(dim=1)(
-                model(EfficientNetB4ST_default_data_transforms['test'](unpreprocessed_image_pil).unsqueeze(0).cuda()))
-            prediction, output = predict_with_model_legacy(unpreprocessed_image_pil_numpy, model=model,
-                                                           model_type=model_type)
-            print('Prediction:', prediction, 'Output:', output)
-            metrics['total_frames'] += 1
-            label = 'fake' if prediction == 1 else 'real'
-            metrics['total_fake_frames'] += 1 if label == 'fake' else 0
-            metrics['total_real_frames'] += 1 if label == 'real' else 0
-            metrics['probs_list'].append(output[0])
-    metrics['percent_fake_frames'] = metrics['total_fake_frames'] / metrics['total_frames']
-    with open(file_path + "_metrics_attack.json", "w") as f:
-        f.write(json.dumps(metrics))
-
-
-def norm_epsilon(eps, preprocess_function, resize_size):
-    max_tensor = torch.ones([1, 3, resize_size, resize_size])
-    min_tensor = torch.zeros([1, 3, resize_size, resize_size])
-    max_eps = float(preprocess_function(max_tensor).max())
-    min_eps = float(preprocess_function(min_tensor).min())
-    return eps * (max_eps - min_eps)
-
-
 if __name__ == '__main__':
     dataset = 'Test'
     videos_path = f'newDataset/{dataset}/fake/Deepfakes'
