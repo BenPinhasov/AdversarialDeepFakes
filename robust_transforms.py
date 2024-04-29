@@ -102,4 +102,3 @@ def translate_image(image, shift_x = 20, shift_y = 20, cuda=True):
 
 
 
-
