@@ -3,16 +3,13 @@
 Author: Andreas Rössler
 """
 import os
-import argparse
 
 import torch
-import pretrainedmodels
 import torch.nn as nn
-import torch.nn.functional as F
 from network.xception import xception
-import math
 import torchvision
 from network.fornet import EfficientNetB4ST
+
 
 def return_pytorch04_xception(pretrained=True):
     # Raises warning "src not broadcastable to dst" but thats fine
@@ -41,7 +38,6 @@ def return_pytorch04_xception(pretrained=True):
         model.last_linear = model.fc
         del model.fc
     return model
-
 
 
 class TransferModel(nn.Module):
@@ -137,29 +133,9 @@ def model_selection(modelname, num_out_classes,
         return TransferModel(modelchoice='xception',
                              num_out_classes=num_out_classes), 299, \
             True, ['image'], None
-    elif modelname == 'resnet18':
-        return TransferModel(modelchoice='resnet18', dropout=dropout,
-                             num_out_classes=num_out_classes), \
-            224, True, ['image'], None
 
-    elif modelname == "meso":
-        print("Returning meso model")
-        return return_pytorch04_meso(), 256, False, ['image'], None
-    elif modelname == "mymeso":
-        print("Returning meso model")
-        return return_pytorch04_mymeso(), 256, False, ['image'], None
     elif modelname == "EfficientNetB4ST":
         return EfficientNetB4ST()
 
     else:
         raise NotImplementedError(modelname)
-
-
-if __name__ == '__main__':
-    model, image_size, *_ = model_selection('resnet18', num_out_classes=2)
-    print(model)
-    model = model.cuda()
-    from torchsummary import summary
-
-    input_s = (3, image_size, image_size)
-    print(summary(model, input_s))

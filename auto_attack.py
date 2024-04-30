@@ -1,3 +1,4 @@
+import argparse
 import json
 import math
 import os
@@ -39,7 +40,7 @@ class ModelWrapper(nn.Module):
 
 class VideoLoader(Thread):
     def __init__(self, video_path, model_type, size, images_queue: Queue, faces_queue: Queue, bb_queue: Queue,
-                 end_event: Event, batch_size: int, transform=None):
+                 end_event: Event, transform=None):
         super(VideoLoader, self).__init__()
         # self.video_path = video_path
         self.transform = transform
@@ -51,7 +52,6 @@ class VideoLoader(Thread):
         self.images_queue = images_queue
         self.faces_queue = faces_queue
         self.bb_queue = bb_queue
-        self.batch_size = batch_size
         self.end_event = end_event
         self.frame_count = 0
 
@@ -63,34 +63,31 @@ class VideoLoader(Thread):
             faces_list = []
             images_list = []
             bb = []
-            for i in range(self.batch_size):
-                ret, image = self.cap.read()
-                if not ret:
-                    break
-                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                faces = self.face_detector(gray, 1)
-                height, width = image.shape[:2]
+            ret, image = self.cap.read()
+            if not ret:
+                break
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            faces = self.face_detector(gray, 1)
+            height, width = image.shape[:2]
 
-                if len(faces):
-                    # For now only take biggest face
-                    face = faces[0]
-                    # Face crop with dlib and bounding box scale enlargement
-                    x, y, size = get_boundingbox(face, width, height)
-                    cropped_face = image[y:y + size, x:x + size]
-                    copy_cropped_face = cropped_face.copy()
-                    cropped_face = cv2.cvtColor(cropped_face, cv2.COLOR_BGR2RGB)
-                    cropped_face = EfficientNetB4ST_default_data_transforms['to_tensor'](cropped_face)
-                    cropped_face = cropped_face.unsqueeze(0)
-                    faces_list.append(cropped_face)
-                    bb.append((x, y, size))
-                    images_list.append(image)
-                self.frame_count += 1
+            if len(faces):
+                # For now only take biggest face
+                face = faces[0]
+                # Face crop with dlib and bounding box scale enlargement
+                x, y, size = get_boundingbox(face, width, height)
+                cropped_face = image[y:y + size, x:x + size]
+                cropped_face = cv2.cvtColor(cropped_face, cv2.COLOR_BGR2RGB)
+                cropped_face = EfficientNetB4ST_default_data_transforms['to_tensor'](cropped_face)
+                cropped_face = cropped_face.unsqueeze(0)
+                faces_list.append(cropped_face)
+                bb.append((x, y, size))
+                images_list.append(image)
+            self.frame_count += 1
             if len(faces_list):
                 self.images_queue.put(images_list)
                 self.faces_queue.put(faces_list)
                 self.bb_queue.put(bb)
         self.end_event.set()
-        # return torch.cat(images_list), torch.cat(faces_tensor), torch.cat(bb)
 
 
 def un_preprocess_image(image: torch.Tensor):
@@ -121,7 +118,7 @@ def preprocess_image(image: np.array, model_type: str):
 
 
 def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attacked_faces_queue: Queue, end_event: Event,
-                 model_type: str, fps: int, video_path: str, bb_queue: Queue):
+                 model_type: str, model_path: str, fps: int, video_path: str, bb_queue: Queue):
     fourcc = cv2.VideoWriter_fourcc(*'HFYU')
     video_fn = video_path.split('/')[-1].split('.')[0] + '.avi'
     file_path = join(output_path, video_fn)
@@ -135,10 +132,8 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
     }
     device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
     if model_type == 'xception':
-        model_path = 'models/all_c23.p'
         model = torch.load(model_path)
     elif model_type == 'EfficientNetB4ST':
-        model_path = 'models/EfficientNetB4ST_FFPP/bestval.pth'
         model = model_selection('EfficientNetB4ST', 1)
         weights = torch.load(model_path)
         model.load_state_dict(weights)
@@ -152,10 +147,6 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
             height, width = images_batch[0].shape[:2]
             out = cv2.VideoWriter(file_path, fourcc, fps, (height, width)[::-1])
         for frame, perturbed_image, (x, y, bb_size) in zip(images_batch, attacked_batch[attack_name][0], bb_batch):
-            original_face = frame[y:y + bb_size, x:x + bb_size]
-            unsqueezed_image = perturbed_image.unsqueeze(0)
-            # print(f'pert image prediction: {nn.Softmax(dim=1)(ModelWrapper(model, model_type)(unsqueezed_image))}')
-
             # unpreprocess
             unprocessed_image = un_preprocess_image(perturbed_image)
 
@@ -181,25 +172,32 @@ def video_writer(output_path: str, attack_name: str, frames_queue: Queue, attack
 
 
 if __name__ == '__main__':
-    dataset = 'Test'
-    videos_path = f'newDataset/{dataset}/fake/Deepfakes'
-    model_type = 'xception'
-    attack_name = 'apgd-ce'
-    deepfake_type = 'Deepfakes'
+    p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument('--video_path', '-i', type=str)
+    p.add_argument('--output_path', '-o', type=str, default='.')
+    p.add_argument('--deepfake_detector_model_type', '-mt', type=str, default='xception')
+    p.add_argument('--attack', '-a', type=str, default='apgd-ce')
+    p.add_argument('--eps', '-e', type=float, default=16 / 255)
+    p.add_argument('--deepfake_detector_model_path', '-mi', type=str, default='models/xception.p')
+    p.add_argument('--cuda', type=bool, default=True)
+    args = p.parse_args()
+    # dataset = 'Test'
+    videos_path = argparse.video_path
+    model_type = argparse.deepfake_detector_model_type
+    attack_name = argparse.attack
     # output_path = f'E:/Dataset/{dataset}/attacked/{attack_name}/{model_type}/{deepfake_type}'
-    eps = 8 / 255
-    output_path = f'newDataset/{dataset}/attacked/{attack_name}_8_255/{model_type}/{deepfake_type}'
-    batch_size = 1
-    use_cuda = True
+    eps = argparse.eps
+    output_path = argparse.output_path
+    model_path = argparse.deepfake_detector_model_path
+    use_cuda = argparse.cuda
     device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
     if model_type == 'xception':
         face_size = 299
-        model_path = 'models/all_c23.p'
         model = torch.load(model_path)
-        p_init = 0.3
+        p_init = 0.8
     elif model_type == 'EfficientNetB4ST':
         face_size = 224
-        model_path = 'models/EfficientNetB4ST_FFPP/bestval.pth'
+        model_path = 'models/EfficientNet.pth'
         model = model_selection('EfficientNetB4ST', 1)
         weights = torch.load(model_path)
         model.load_state_dict(weights)
@@ -231,21 +229,16 @@ if __name__ == '__main__':
         process_end_event = Event()
 
         video_batch_thread = VideoLoader(video_path, model_type, face_size, images_queue, faces_queue, bb_queue,
-                                         end_event, batch_size, preprocess_image, )
+                                         end_event, preprocess_image)
         video_batch_thread.start()
         fps = video_batch_thread.fps
         video_writer_thread = Thread(target=video_writer,
                                      args=(output_path, attack_name, images_queue,
-                                           adv_faces_queue, process_end_event, model_type, int(fps), video_path,
+                                           adv_faces_queue, process_end_event, model_type, model_path, int(fps), video_path,
                                            bb_queue,))
         video_writer_thread.start()
-        # frame_writer_thread = Thread(target=frame_writer,
-        #                              args=(output_path, attack_name, images_queue,
-        #                                    adv_faces_queue, process_end_event, model_type, model_legacy,
-        #                                    int(fps), video_path, bb_queue,))
-        # frame_writer_thread.start()
 
-        number_of_batches = math.ceil(len(video_batch_thread) / batch_size)
+        number_of_batches = len(video_batch_thread)
         batch_bar = tqdm(total=number_of_batches)
         while not end_event.is_set() or faces_queue.qsize() > 0:
             temp = faces_queue.get()
@@ -265,5 +258,4 @@ if __name__ == '__main__':
         process_end_event.set()
         video_batch_thread.join()
         video_writer_thread.join()
-        # frame_writer_thread.join()
         print(f'{video} finished')

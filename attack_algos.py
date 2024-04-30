@@ -2,8 +2,6 @@ import time
 
 from torch import autograd
 
-
-
 from utils import *
 import torch
 import torch.nn as nn
@@ -56,125 +54,6 @@ def predict_with_model(preprocessed_image, model, model_type, post_function=nn.S
     # print ("prediction", prediction)
     # print ("output", output)
     return int(prediction), output, logits
-
-
-def xai_attack_iterative_fgsm(input_img, deepfake_model, deepfake_model_type, crop_size,
-                              xai_calculator, xai_method, cuda=True,
-                              max_iter=100, alpha=1 / 255.0, eps=16 / 255.0, desired_acc=0.99):
-    input_var = autograd.Variable(input_img, requires_grad=True)
-    post_function = nn.Softmax(dim=1)
-    first_xai_map = None
-    target_var = autograd.Variable(torch.LongTensor([0]))
-    if cuda:
-        target_var = target_var.cuda()
-
-    iter_no = 0
-    while iter_no < max_iter:
-        _, output_deepfake_detector, logits_deepfake_detector = predict_with_model(input_var, deepfake_model,
-                                                                                   deepfake_model_type,
-                                                                                   cuda=cuda,
-                                                                                   post_function=post_function)
-        unpreprocessed_image = un_preprocess_image(input_var, crop_size)
-        xai_map = calculate_xai_map(unpreprocessed_image, deepfake_model, deepfake_model_type,
-                                    xai_calculator, xai_method, cuda=cuda)
-        if first_xai_map is None:
-            first_xai_map = xai_map.detach().clone()
-
-        if (output_deepfake_detector[0][0]) > desired_acc:
-            break
-        loss_criterion = nn.CrossEntropyLoss()
-        loss1 = loss_criterion(logits_deepfake_detector, target_var)
-        loss_criterion2 = nn.MSELoss()
-        loss2 = loss_criterion2(xai_map, first_xai_map)
-        loss = loss1 + loss2
-        if input_var.grad is not None:
-            input_var.grad.data.zero_()  # just to ensure nothing funny happens
-        loss.backward()
-
-        step_adv = input_var.detach() - alpha * torch.sign(input_var.grad.detach())
-        total_pert = step_adv - input_img
-        total_pert = torch.clamp(total_pert, -eps, eps)
-
-        input_adv = input_img + total_pert
-        input_adv = torch.clamp(input_adv, 0, 1)
-
-        input_var.data = input_adv.detach()
-
-        iter_no += 1
-
-    l_inf_norm = torch.max(torch.abs((input_var - input_img))).item()
-    print("L infinity norm", l_inf_norm, l_inf_norm * 255.0)
-
-    meta_data = {
-        'attack_iterations': iter_no,
-        'l_inf_norm': l_inf_norm,
-        'l_inf_norm_255': round(l_inf_norm * 255.0)
-    }
-
-    return input_var, meta_data
-
-
-def adaptive_iterative_fgsm(input_img, deepfake_model, deepfake_model_type, attacked_detector_model, crop_size,
-                            xai_calculator, xai_method, cuda=True,
-                            max_iter=100, alpha=1 / 255.0, eps=16 / 255.0, desired_acc=0.99):
-    input_var = autograd.Variable(input_img, requires_grad=True)
-
-    target_var = autograd.Variable(torch.LongTensor([0]))
-    if cuda:
-        target_var = target_var.cuda()
-
-    iter_no = 0
-    post_function = nn.Softmax(dim=1)
-    while iter_no < max_iter:
-        _, output_deepfake_detector, logits_deepfake_detector = predict_with_model(input_var, deepfake_model,
-                                                                                   deepfake_model_type,
-                                                                                   cuda=cuda,
-                                                                                   post_function=post_function)
-        # if deepfake_model_type == 'EfficientNetB4ST':
-        #     # repeated = logits.repeat(1, 2)
-        #     # repeated[0][0] *= -1
-        #     logits = nn.Softmax(dim=1)(logits)
-        unpreprocessed_image = un_preprocess_image(input_var, crop_size)
-        xai_map = calculate_xai_map(unpreprocessed_image, deepfake_model, deepfake_model_type,
-                                    xai_calculator, xai_method, cuda=cuda)
-        _, output_attacked_detector, logits_attacked_detector = check_attacked(input_var, xai_map,
-                                                                               attacked_detector_model,
-                                                                               cuda=cuda,
-                                                                               post_function=post_function)
-
-        if (output_deepfake_detector[0][0]) > desired_acc and (
-                output_attacked_detector[0][0] > 0.9):
-            break
-        loss_criterion = nn.CrossEntropyLoss()
-        loss1 = loss_criterion(logits_deepfake_detector, target_var)
-        loss_criterion2 = nn.CrossEntropyLoss()
-        loss2 = loss_criterion2(logits_attacked_detector, target_var)
-        loss = loss1 + loss2
-        if input_var.grad is not None:
-            input_var.grad.data.zero_()  # just to ensure nothing funny happens
-        loss.backward()
-
-        step_adv = input_var.detach() - alpha * torch.sign(input_var.grad.detach())
-        total_pert = step_adv - input_img
-        total_pert = torch.clamp(total_pert, -eps, eps)
-
-        input_adv = input_img + total_pert
-        input_adv = torch.clamp(input_adv, 0, 1)
-
-        input_var.data = input_adv.detach()
-
-        iter_no += 1
-
-    l_inf_norm = torch.max(torch.abs((input_var - input_img))).item()
-    print("L infinity norm", l_inf_norm, l_inf_norm * 255.0)
-
-    meta_data = {
-        'attack_iterations': iter_no,
-        'l_inf_norm': l_inf_norm,
-        'l_inf_norm_255': round(l_inf_norm * 255.0)
-    }
-
-    return input_var, meta_data
 
 
 def iterative_fgsm(input_img, model, model_type, cuda=True, max_iter=100, alpha=1 / 255.0, eps=16 / 255.0,

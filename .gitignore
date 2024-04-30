@@ -8,7 +8,6 @@
 *.zip
 *.png
 *.mp4
-*.p
 *.h5
 .idea
 faceforensics++_models_subset

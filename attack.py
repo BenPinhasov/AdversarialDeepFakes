@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from network.models import model_selection
 
-from attack_algos import iterative_fgsm, adaptive_iterative_fgsm, xai_attack_iterative_fgsm, black_box_attack, \
+from attack_algos import iterative_fgsm, black_box_attack, \
     predict_with_model as predict_with_model_attack_algos
 from utils import *
 
@@ -179,46 +179,7 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
             # Attack happening here
 
             # white-box attacks
-            if attack == 'xai_adaptive_fgsm':
-                perturbed_image, attack_meta_data = xai_attack_iterative_fgsm(input_img=processed_image,
-                                                                              deepfake_model=deepfake_detector_model,
-                                                                              deepfake_model_type=deepfake_detector_model_type,
-                                                                              cuda=cuda,
-                                                                              xai_calculator=xai_calculator,
-                                                                              xai_method=xai_method,
-                                                                              crop_size=size,
-                                                                              max_iter=1)
-            elif attack == 'xai_adaptive_pgd':
-                perturbed_image, attack_meta_data = xai_attack_iterative_fgsm(input_img=processed_image,
-                                                                              deepfake_model=deepfake_detector_model,
-                                                                              deepfake_model_type=deepfake_detector_model_type,
-                                                                              cuda=cuda,
-                                                                              xai_calculator=xai_calculator,
-                                                                              xai_method=xai_method,
-                                                                              crop_size=size,
-                                                                              max_iter=100)
-            elif attack == "adaptive_fgsm":
-                perturbed_image, attack_meta_data = adaptive_iterative_fgsm(input_img=processed_image,
-                                                                            deepfake_model=deepfake_detector_model,
-                                                                            deepfake_model_type=deepfake_detector_model_type,
-                                                                            cuda=cuda,
-                                                                            xai_calculator=xai_calculator,
-                                                                            xai_method=xai_method,
-                                                                            crop_size=size,
-                                                                            attacked_detector_model=attacked_detector_model,
-                                                                            max_iter=1)
-            elif attack == "adaptive_pgd":
-                perturbed_image, attack_meta_data = adaptive_iterative_fgsm(input_img=processed_image,
-                                                                            deepfake_model=deepfake_detector_model,
-                                                                            deepfake_model_type=deepfake_detector_model_type,
-                                                                            cuda=cuda,
-                                                                            xai_calculator=xai_calculator,
-                                                                            xai_method=xai_method,
-                                                                            crop_size=size,
-                                                                            attacked_detector_model=attacked_detector_model,
-                                                                            max_iter=100)
-
-            elif attack == "fgsm":
+            if attack == "fgsm":
                 perturbed_image, attack_meta_data = iterative_fgsm(processed_image,
                                                                    deepfake_detector_model,
                                                                    deepfake_detector_model_type,
@@ -348,8 +309,6 @@ if __name__ == '__main__':
     p.add_argument('--deepfake_detector_model_path', '-mi', type=str, default=None)
     p.add_argument('--deepfake_detector_model_type', '-mt', type=str, default="xception")
     p.add_argument('--output_path', '-o', type=str, default='.')
-    p.add_argument('--xai_method', '-x', type=str, default=None)
-    p.add_argument('--attacked_detector_model_path', '-ma', type=str, default=None)
     p.add_argument('--start_frame', type=int, default=0)
     p.add_argument('--end_frame', type=int, default=None)
     p.add_argument('--attack', '-a', type=str, default="pgd")  # black_box / iterative_fgsm / pgd
