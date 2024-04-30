@@ -197,7 +197,7 @@ if __name__ == '__main__':
         p_init = 0.8
     elif model_type == 'EfficientNetB4ST':
         face_size = 224
-        model_path = 'models/EfficientNet.pth'
+        model_path = 'models/EfficientNetB4ST.pth'
         model = model_selection('EfficientNetB4ST', 1)
         weights = torch.load(model_path)
         model.load_state_dict(weights)

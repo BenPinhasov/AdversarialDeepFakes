@@ -345,8 +345,6 @@ if __name__ == '__main__':
     attacked_data_path = args.attacked_data_path
     models_names = ['xception', 'EfficientNetB4ST']
 
-    # best_threshold, max_acc = find_best_threshold(work_dirs=[real_data_path, fake_data_path], models_names=models_names)
-
     majority_vote_thresholds = [0.5, 0.5, 0.5]
     # real_videos_dataset_summ, real_videos_stats = summarize_videos(work_dir=real_data_path, models_names=models_names,
     #                                                                majority_vote_thresholds=majority_vote_thresholds,

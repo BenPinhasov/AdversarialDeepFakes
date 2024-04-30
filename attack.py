@@ -24,8 +24,6 @@ from attack_algos import iterative_fgsm, black_box_attack, \
 from utils import *
 
 import json
-from torchvision.models import ResNet50_Weights
-from xai_classification import CustomResNet50
 from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Saliency
 
 
@@ -88,19 +86,11 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
         print('Model found in {}'.format(deepfake_detector_model_path))
     else:
         print('No deepfake_detector_model found, initializing random deepfake_detector_model.')
-    if attack.find('adaptive') != -1:
-        attacked_detector_model = CustomResNet50(weights=ResNet50_Weights.DEFAULT)
-        attacked_detector_model.load_state_dict(torch.load(attacked_detector_model_path))
-        xai_calculator = eval(f'{xai_method}')(deepfake_detector_model)
     if cuda:
         print("Converting mode to cuda")
         deepfake_detector_model = deepfake_detector_model.eval().cuda()
         for param in deepfake_detector_model.parameters():
             param.requires_grad = True
-        if attack.find('adaptive') != -1:
-            attacked_detector_model = attacked_detector_model.eval().cuda()
-            for param in attacked_detector_model.parameters():
-                param.requires_grad = True
         print("Converted to cuda")
 
     # raise Exception()
@@ -216,58 +206,34 @@ def create_adversarial_video(video_path, deepfake_detector_model_path, deepfake_
                                                            deepfake_detector_model_type, cuda=cuda,
                                                            post_function=post_function)
             print(">>>>Prediction LEGACY for frame no. {}: {}".format(frame_num, output))
-            if attack.find('adaptive') != -1:
-                xai_map = calculate_xai_map(cropped_face, deepfake_detector_model, deepfake_detector_model_type,
-                                            xai_calculator,
-                                            xai_method, cuda=cuda)
-                attacked_prediction, attacked_output, _ = check_attacked(processed_image, xai_map,
-                                                                         attacked_detector_model)
 
-                print(">>>>Prediction LEGACY for frame no. {}: deepfake: {} attacked: {}".format(frame_num, output,
-                                                                                                 attacked_output))
-                deepfake_label = 'fake' if prediction == 1 else 'real'
-                attacked_label = 'attacked' if attacked_prediction == 1 else 'real'
-                if deepfake_label == 'fake' and attacked_label == 'attacked':
-                    metrics['total_fake_attacked_frames'] += 1.
-                elif deepfake_label == 'fake' and attacked_label == 'real':
-                    metrics['total_fake_real_frames'] += 1.
-                elif deepfake_label == 'real' and attacked_label == 'attacked':
-                    metrics['total_real_attacked_frames'] += 1.
-                elif deepfake_label == 'real' and attacked_label == 'real':
-                    metrics['total_real_real_frames'] += 1.
-                metrics['total_frames'] += 1.
-                metrics['probs_list'].append(output[0])
-                metrics['attacked_detector_probs_list'].append(attacked_output[0])
-                metrics['attack_meta_data'].append(attack_meta_data)
-
+            label = 'fake' if prediction == 1 else 'real'
+            if label == 'fake':
+                metrics['total_fake_frames'] += 1.
             else:
-                label = 'fake' if prediction == 1 else 'real'
-                if label == 'fake':
-                    metrics['total_fake_frames'] += 1.
-                else:
-                    metrics['total_real_frames'] += 1.
+                metrics['total_real_frames'] += 1.
 
-                metrics['total_frames'] += 1.
-                metrics['probs_list'].append(output[0])
-                metrics['attack_meta_data'].append(attack_meta_data)
+            metrics['total_frames'] += 1.
+            metrics['probs_list'].append(output[0])
+            metrics['attack_meta_data'].append(attack_meta_data)
 
-            if showlabel:
-                # Text and bb
-                # print a bounding box in the generated video
-                x = face.left()
-                y = face.top()
-                w = face.right() - x
-                h = face.bottom() - y
-                label = 'fake' if prediction == 1 else 'real'
-                color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
-                output_list = ['{0:.2f}'.format(float(x)) for x in
-                               output.detach().cpu().numpy()[0]]
+        if showlabel:
+            # Text and bb
+            # print a bounding box in the generated video
+            x = face.left()
+            y = face.top()
+            w = face.right() - x
+            h = face.bottom() - y
+            label = 'fake' if prediction == 1 else 'real'
+            color = (0, 255, 0) if prediction == 0 else (0, 0, 255)
+            output_list = ['{0:.2f}'.format(float(x)) for x in
+                           output.detach().cpu().numpy()[0]]
 
-                cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
-                            font_face, font_scale,
-                            color, thickness, 2)
-                # draw box over face
-                cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(image, str(output_list) + '=>' + label, (x, y + h + 30),
+                        font_face, font_scale,
+                        color, thickness, 2)
+            # draw box over face
+            cv2.rectangle(image, (x, y), (x + w, y + h), color, 2)
 
         if frame_num >= end_frame:
             break

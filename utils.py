@@ -113,7 +113,6 @@ def un_preprocess_image(image, size):
     return new_image
 
 
-
 def check_attacked(preprocessed_image, xai_map, model, post_function=nn.Softmax(dim=1), cuda=True):
     """
     Adapted predict_for_model for attack. Differentiable image pre-processing.
@@ -143,7 +142,6 @@ def check_attacked(preprocessed_image, xai_map, model, post_function=nn.Softmax(
     # print ("prediction", prediction)
     # print ("output", output)
     return int(prediction), output, logits
-
 
 
 def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax(dim=1),
@@ -178,9 +176,6 @@ def predict_with_model_legacy(image, model, model_type, post_function=nn.Softmax
     return int(prediction), output
 
 
-
-
-
 def calculate_xai_map(cropped_face, model, model_type, xai_calculator, xai_method, cuda=True):
     preprocessed_image = preprocess_image(cropped_face, model_type)
     prediction, output = predict_with_model_legacy(cropped_face, model, model_type, post_function=nn.Softmax(dim=1),
@@ -192,4 +187,47 @@ def calculate_xai_map(cropped_face, model, model_type, xai_calculator, xai_metho
     return xai_img
 
 
+def predict_with_model(preprocessed_image, model, model_type, post_function=nn.Softmax(dim=1), cuda=True):
+    """
+    Adapted predict_for_model for attack. Differentiable image pre-processing.
+    Predicts the label of an input image. Performs resizing and normalization before feeding in image.
 
+    :param image: torch tenosr (bs, c, h, w)
+    :param model: torch model with linear layer at the end
+    :param post_function: e.g., softmax
+    :param cuda: enables cuda, must be the same parameter as the model
+    :return: prediction (1 = fake, 0 = real), output probs, logits
+    """
+
+    # Model prediction
+
+    # differentiable resizing: doing resizing here instead of preprocessing
+    if model_type == "xception":
+        resized_image = nn.functional.interpolate(preprocessed_image, size=(299, 299), mode="bilinear",
+                                                  align_corners=True)
+        norm_transform = xception_default_data_transforms['normalize']
+        normalized_image = norm_transform(resized_image)
+    elif model_type == 'EfficientNetB4ST':
+        resized_image = nn.functional.interpolate(preprocessed_image, size=(224, 224), mode="bilinear",
+                                                  align_corners=True)
+        norm_transform = EfficientNetB4ST_default_data_transforms['normalize']
+        normalized_image = norm_transform(resized_image)
+        # normalized_image = preprocessed_image
+
+    logits = model(normalized_image)
+    output = post_function(logits)
+
+    if model_type == 'EfficientNetB4ST':
+        fake_pred = output[0][1].item()
+        real_pred = 1 - fake_pred
+        output = np.array([real_pred, fake_pred])
+        prediction = float(np.argmax(output))
+        output = [output.tolist()]
+    else:
+        # Cast to desired
+        _, prediction = torch.max(output, 1)  # argmax
+        prediction = float(prediction.cpu().numpy())
+        output = output.detach().cpu().numpy().tolist()
+    # print ("prediction", prediction)
+    # print ("output", output)
+    return int(prediction), output, logits

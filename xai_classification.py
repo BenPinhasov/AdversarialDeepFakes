@@ -1,9 +1,8 @@
 import os
 
 import PIL.Image
-import clip
 import numpy as np
-from torchvision.models import resnet50, ResNet50_Weights, vit_l_32, ViT_L_32_Weights
+from torchvision.models import resnet50, ResNet50_Weights
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms

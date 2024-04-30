@@ -1,6 +1,5 @@
 import pickle
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 if __name__ == '__main__':
     with open('runs_resnet50_nograd_rocs.pkl', 'rb') as f:
