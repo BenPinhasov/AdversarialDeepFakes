@@ -33,7 +33,7 @@ You can find our used models under [this link](http://kaldir.vc.in.tum.de:/FaceF
 
 ### MesoNet
 
-We use the the PyTorch implementation of [MesoNet](https://github.com/HongguLiu/MesoNet-Pytorch). The pretrained model can be downloaded from [here](https://github.com/HongguLiu/MesoNet-Pytorch/blob/master/output/Mesonet/best.pkl?raw=true). Once downloaded save the pkl as `Meso4_deepfake.pkl` inside ```faceforensics++_models_subset/face_detection/Meso```  directory which was created by unzipping the XceptionNet models in the previous link. 
+We use the PyTorch implementation of [MesoNet](https://github.com/HongguLiu/MesoNet-Pytorch). The pretrained model can be downloaded from [here](https://github.com/HongguLiu/MesoNet-Pytorch/blob/master/output/Mesonet/best.pkl?raw=true). Once downloaded save the pkl as `Meso4_deepfake.pkl` inside ```faceforensics++_models_subset/face_detection/Meso```  directory which was created by unzipping the XceptionNet models in the previous link. 
 
 After saving the weights the `faceforensics++_models_subset/` directory should have the following structure:
 
@@ -98,7 +98,7 @@ Example:
 ```shell
 python create_xai.py --video_path tempadv/attacked/apgd-ce/EfficientNetB4ST --model_path models\EfficientNetB4ST.pth --model_type EfficientNetB4ST --output_path Frames/attacked/<attack_name> --cuda --xai_methods GuidedBackprop Saliency InputXGradient IntegratedGradients
 ```
-The output will be is a directory containing facecrops and direcotory for each XAI method containing the XAI maps for each frame of the video.
+The output will be is a directory containing facecrops and directory for each XAI method containing the XAI maps for each frame of the video.
 
 Example of the directory structure of videos detected with EfficientNetB4ST deepfake detector:
 ```
