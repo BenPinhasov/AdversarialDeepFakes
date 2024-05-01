@@ -277,14 +277,14 @@ if __name__ == '__main__':
     p.add_argument('--output_path', '-o', type=str, default='.')
     p.add_argument('--start_frame', type=int, default=0)
     p.add_argument('--end_frame', type=int, default=None)
-    p.add_argument('--attack', '-a', type=str, default="pgd")  # black_box / iterative_fgsm / pgd
+    p.add_argument('--attack', '-a', type=str, default="pgd")
     p.add_argument('--eps', type=float, default=16 / 255)
     p.add_argument('--compress', action='store_true')
     p.add_argument('--cuda', action='store_true')
     p.add_argument('--showlabel', action='store_true')  # add face labels in the generated video
 
     args = p.parse_args()
-
+    args.output_path += f'/{args.attack}/{args.deepfake_detector_model_type}'
     video_path = args.video_path
     if video_path.endswith('.mp4') or video_path.endswith('.avi'):
         create_adversarial_video(**vars(args))

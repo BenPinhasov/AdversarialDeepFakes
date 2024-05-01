@@ -9,7 +9,7 @@ from torch import nn
 from tqdm import tqdm
 from torchvision import transforms
 
-from attack import preprocess_image, get_boundingbox, un_preprocess_image, predict_with_model_legacy
+from utils import get_boundingbox
 import cv2
 import dlib
 import torch
@@ -179,17 +179,15 @@ if __name__ == '__main__':
     p.add_argument('--attack', '-a', type=str, default='apgd-ce')
     p.add_argument('--eps', '-e', type=float, default=16 / 255)
     p.add_argument('--deepfake_detector_model_path', '-mi', type=str, default='models/xception.p')
-    p.add_argument('--cuda', type=bool, default=True)
+    p.add_argument('--cuda', action='store_true')
     args = p.parse_args()
-    # dataset = 'Test'
-    videos_path = argparse.video_path
-    model_type = argparse.deepfake_detector_model_type
-    attack_name = argparse.attack
-    # output_path = f'E:/Dataset/{dataset}/attacked/{attack_name}/{model_type}/{deepfake_type}'
-    eps = argparse.eps
-    output_path = argparse.output_path
-    model_path = argparse.deepfake_detector_model_path
-    use_cuda = argparse.cuda
+    videos_path = args.video_path
+    model_type = args.deepfake_detector_model_type
+    attack_name = args.attack
+    eps = args.eps
+    output_path = args.output_path + '/' + attack_name + '/' + model_type
+    model_path = args.deepfake_detector_model_path
+    use_cuda = args.cuda
     device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
     if model_type == 'xception':
         face_size = 299

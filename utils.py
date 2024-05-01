@@ -71,9 +71,6 @@ def preprocess_image(image, model_type, cuda=True, legacy=False):
             preprocess = xception_default_data_transforms['test']
             preprocessed_image = preprocess(pil_image.fromarray(image))
 
-        elif model_type == "meso":
-            preprocess = mesonet_default_data_transforms['test']
-            preprocessed_image = preprocess(pil_image.fromarray(image))
 
         elif model_type == 'EfficientNetB4ST':
             # normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])

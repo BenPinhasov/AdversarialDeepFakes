@@ -14,8 +14,6 @@ import torch.nn as nn
 from torchvision import transforms
 import os
 from os.path import join
-import sys
-from PIL import Image as pil_image
 import json
 from network.models import model_selection
 from captum.attr import IntegratedGradients, InputXGradient, GuidedBackprop, Saliency, visualization
@@ -46,11 +44,6 @@ def un_preprocess_image(image, size):
 
 
 def image_to_display(img, label=None, confidence=None, target=None):
-    # img -= img.min()
-    # img /= img.max()
-    # img = (img * 255).squeeze().T.cpu().detach().numpy()  # get normalized
-    # img = np.swapaxes(img, 1, 0).astype(dtype=np.uint8)
-    # img = tensor_to_numpy(img).astype(dtype=np.uint8) * 255
     if label and confidence and target is not None:
         font = cv2.FONT_HERSHEY_SIMPLEX
         org = (5, 15)
@@ -86,19 +79,8 @@ def load_model(model_type: str, model_path: str, cuda: bool):
         if not cuda:
             model = torch.load(model_path, map_location="cpu")
         else:
-            if model_type == 'meso':
-                # onnx_model = onnx.load(model_path)
-                # model =
-                # model = ConvertModel(onnx_model)
-                model = model_selection(model_type, 2)[0]
-                weights = torch.load(model_path)
-                model.load_state_dict(weights)
-            elif model_type == 'xception':
+            if model_type == 'xception':
                 model = torch.load(model_path)
-            elif model_type == 'mymeso':
-                model = model_selection(model_type, 2)[0]
-                weights = torch.load(model_path)
-                model.load_state_dict(weights)
             elif model_type == 'EfficientNetB4ST':
                 model = model_selection('EfficientNetB4ST', 2)
                 weights = torch.load(model_path)
@@ -136,8 +118,8 @@ def video_writer_process(output_path, model_type, xai_method, video_fn, writer_d
         if not frames_queue.empty():
             xai_img, cropped_face, frame_id = frames_queue.get()
             # writer.write(frame)
-            if not os.path.exists(os.path.join(output_path, model_type, f'original/{video_fn}_{frame_id}.jpg')):
-                cv2.imwrite(os.path.join(output_path, model_type, f'original/{video_fn}_{frame_id}.jpg'), cropped_face)
+            if not os.path.exists(os.path.join(output_path, model_type, f'Frames/{video_fn}_{frame_id}.jpg')):
+                cv2.imwrite(os.path.join(output_path, model_type, f'Frames/{video_fn}_{frame_id}.jpg'), cropped_face)
             if not os.path.exists(os.path.join(output_path, model_type, xai_method, f'{video_fn}_{frame_id}.jpg')):
                 cv2.imwrite(os.path.join(output_path, model_type, xai_method, f'{video_fn}_{frame_id}.jpg'), xai_img)
         else:
@@ -148,7 +130,6 @@ def video_writer_process(output_path, model_type, xai_method, video_fn, writer_d
 
 def preprocess_image_square(image: np.array, model_type: str):
     unprocessed_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    # unprocessed_image = image
     if model_type == 'EfficientNetB4ST':
         trans = transforms.Compose([
             transforms.ToTensor(),
@@ -188,7 +169,6 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
 
     face_detector = dlib.get_frontal_face_detector()
     model, post_function = load_model(model_type, model_path, cuda)
-    # model = ModelWrapper(model_legacy, model_type)
     # Frame numbers and length of output video
     start_frame = 0
     end_frame = None
@@ -204,7 +184,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
     writers_process_frames_queues = {}
     for xai_method in xai_methods:
         os.makedirs(output_path + f'/{model_type}/{xai_method}', exist_ok=True)
-        os.makedirs(output_path + f'/{model_type}/original', exist_ok=True)
+        os.makedirs(output_path + f'/{model_type}/Frames', exist_ok=True)
         xai[xai_method] = eval(f'{xai_method}')(model)
         if not os.path.exists(os.path.join(output_path, xai_method, video_fn.replace(".avi", "_metrics.json"))):
             writers_process_frames_queues[xai_method] = Queue()
@@ -250,7 +230,7 @@ def compute_attr(video_path, model_path, model_type, output_path, xai_methods, c
             prediction, output = predict_with_model_square(preprocessed_image, model, post_function=post_function)
         else:
             preprocessed_image = preprocess_image(cropped_face, model_type)
-            prediction, output = predict_with_model(cropped_face, model, model_type, post_function=post_function,
+            prediction, output, _ = predict_with_model(preprocessed_image, model, model_type, post_function=post_function,
                                                     cuda=cuda)
         print(f'prediction: {prediction} output: {output}')
         if prediction == 1:
