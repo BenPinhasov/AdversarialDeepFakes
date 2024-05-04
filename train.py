@@ -1,6 +1,5 @@
-import os
+import argparse
 
-import PIL.Image
 import numpy as np
 from torchvision.models import resnet50, ResNet50_Weights
 import torch
@@ -8,20 +7,11 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 import torch.optim as optim
 from torch.utils.data import DataLoader
-# from torchvision.datasets import YourDataset  # Replace with your dataset class
-from torchvision.datasets import DatasetFolder, ImageFolder
-from PIL import Image as pil_image
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from dataset.transform import ImageXaiFolder
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 import datetime as dt
 
-
-# def main():
-#     weights = ResNet50_Weights.DEFAULT
-#     model = resnet50(weights=weights)
-#     model.eval()
 
 def loader(path):
     image = np.load(path) / 2
@@ -85,27 +75,41 @@ def calculate_accuracy(outputs, labels):
 
 
 def train(embedding_model="resnet50"):
+    p = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument('--train_real_dataset_path', '-tri', type=str)
+    p.add_argument('--train_attacked_dataset_path', '-tai', type=str)
+    p.add_argument('--validation_real_dataset_path', '-vri', type=str)
+    p.add_argument('--validation_attacked_dataset_path', '-vai', type=str)
+    p.add_argument('--epochs', '-e', type=int, default=100)
+    p.add_argument('--lr', '-lr', type=float, default=0.001)
+    p.add_argument('--batch_size', '-b', type=int, default=16)
+    p.add_argument('--frozen', '-fr', action='store_true')
+    p.add_argument('--xai_method', '-xm', type=str, default='InputXGradient')
+    p.add_argument('--detector_type', '-dt', type=str, default='xception')
+    args = p.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    detector_type = 'xception'
-    xai_method = 'InputXGradient'
-    train_original_crops_path = rf'newDataset\Train\Frames\original\{detector_type}\original'
-    train_original_xai_path = rf'newDataset\Train\Frames\original\{detector_type}\{xai_method}'
-    train_attacked_path = rf'newDataset\Train\Frames\attacked\Deepfakes\{detector_type}\original'
-    train_attacked_xai_path = rf'newDataset\Train\Frames\attacked\Deepfakes\{detector_type}\{xai_method}'
-    validation_original_crops_path = rf'newDataset\Validation\Frames\original\{detector_type}\original'
-    validation_original_xai_path = rf'newDataset\Validation\Frames\original\{detector_type}\{xai_method}'
-    validation_attacked_path = rf'newDataset\Validation\Frames\attacked\Deepfakes\{detector_type}\original'
-    validation_attacked_xai_path = rf'newDataset\Validation\Frames\attacked\Deepfakes\{detector_type}\{xai_method}'
+    detector_type = args.detector_type
+    xai_method = args.xai_method
+    train_original_crops_path = rf'{args.train_real_dataset_path}\{detector_type}\Frames'
+    train_original_xai_path = rf'{args.train_real_dataset_path}\{detector_type}\{xai_method}'
+    train_attacked_path = rf'{args.train_attacked_dataset_path}\{detector_type}\Frames'
+    train_attacked_xai_path = rf'{args.train_attacked_dataset_path}\{detector_type}\{xai_method}'
+    validation_original_crops_path = rf'{args.validation_real_dataset_path}\{detector_type}\Frames'
+    validation_original_xai_path = rf'{args.validation_real_dataset_path}\{detector_type}\{xai_method}'
+    validation_attacked_path = rf'{args.validation_attacked_dataset_path}\{detector_type}\Frames'
+    validation_attacked_xai_path = rf'{args.validation_attacked_dataset_path}\{detector_type}\{xai_method}'
 
-    num_epochs = 100
-    lr = 0.00001
-    batch_size = 16
+    num_epochs = args.epochs
+    lr = args.lr
+    batch_size = args.batch_size
     dropout = False
-    frozen = True
+    frozen = args.frozen
+
     time = dt.datetime.now().strftime('%b%d_%H-%M-%S')
     detector_type = train_original_xai_path.split('\\')[-2]
     xai_method = train_original_xai_path.split('\\')[-1]
-    summery_path = f'runs_{embedding_model}_frozen{frozen}/{detector_type}/{xai_method}/{time}_lr{lr}_batch{batch_size}_dropout{dropout}'
+    summery_path = f'runs_{embedding_model}_frozen{frozen}/{detector_type}/{xai_method}/{time}_lr{lr}_batch{batch_size}'
     summery_writer = SummaryWriter(log_dir=summery_path)
     # data = np.load(data_path).astype("float16")
     if embedding_model == "resnet50":
@@ -116,17 +120,6 @@ def train(embedding_model="resnet50"):
         ])
         weights = ResNet50_Weights.DEFAULT
         model = CustomResNet50(weights=weights, dropout=dropout, frozen_resnet=frozen)
-    elif embedding_model == "clip":
-        model = CustomClip()
-        transform = model.preprocess
-    elif embedding_model == "vit":
-        model = CustomViT()
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize((224, 224)),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-    # dataset = DatasetFolder(root=data_path, loader=loader, extensions=['npy'], transform=transform)
     train_dataset = ImageXaiFolder(
         original_path=train_original_crops_path,
         original_xai_path=train_original_xai_path,
@@ -213,92 +206,8 @@ def train(embedding_model="resnet50"):
     torch.save(best_model, summery_path + '/last_model.pth')
 
 
-def train_clip():
-    import clip
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, preprocess = clip.load("ViT-B/32", device=device)
-    data_path = 'Datasets/new_dataset_resent50/EfficientNetB4ST/IntegratedGradients/'
-    summery_writer = SummaryWriter('clip_logs')
-    classifier = Classifier(512, 2).to(device)
-    dataset = CustomImageFolder(root=data_path, transform=preprocess)
-    total_len = len(dataset)
-    train_len = int(total_len * 0.7)
-    valid_len = int(total_len * 0.2)
-    test_len = total_len - train_len - valid_len
-    train_dataset, valid_dataset, test_dataset = torch.utils.data.random_split(dataset,
-                                                                               [train_len, valid_len, test_len])
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    validation_loader = DataLoader(valid_dataset, batch_size=16, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(classifier.parameters(), lr=0.001, momentum=0.9)
-    num_epochs = 50
-    epoch_pbar = tqdm(total=num_epochs)
-    for epoch in range(num_epochs):
-        print('\ntraining the model')
-        batch_pbar = tqdm(total=len(train_loader))
-        classifier.train()
-        for images, xais, labels in train_loader:
-            xais = xais.to(device)
-            labels = labels.to(device)
-            with torch.no_grad():
-                embeddings = model.encode_image(xais).type(torch.float32)
-            optimizer.zero_grad()
-            outputs = classifier(embeddings)
-            loss = criterion(outputs, labels.to(device))
-            loss.backward()
-            optimizer.step()
-            batch_pbar.update(1)
-        batch_pbar.close()
-        summery_writer.add_scalar('Loss/train', loss, epoch)
-        # Validation
-        classifier.eval()
-        print('\nvalidation the model')
-        validation_bar = tqdm(total=len(validation_loader))
-        total_correct = 0
-        total_samples = 0
-        with torch.no_grad():
-            for images, xais, labels in validation_loader:
-                xais = xais.to(device)
-                labels = labels.to(device)
-                embeddings = model.encode_image(xais).type(torch.float32)
-                outputs = classifier(embeddings)
-                _, predicted = torch.max(outputs, 1)
-                total_samples += labels.size(0)
-                total_correct += (predicted == labels).sum().item()
-                validation_bar.update(1)
-        validation_bar.close()
-
-        accuracy = 100 * total_correct / total_samples
-        print(f'\nEpoch [{epoch + 1}/{num_epochs}], Accuracy: {accuracy:.2f}%')
-        summery_writer.add_scalar('Accuracy/validation', accuracy, epoch)
-        epoch_pbar.update(1)
-    epoch_pbar.close()
-    print('\ntesting the model')
-    # test the model with test dataset
-    total_accuracy = 0
-    classifier.eval()
-    total_correct = 0
-    total_samples = 0
-    testing_bar = tqdm(total=len(test_loader))
-    with torch.no_grad():
-        for images, xais, labels in test_loader:
-            xais = xais.to(device)
-            labels = labels.to(device)
-            embeddings = model.encode_image(xais).type(torch.float32)
-            outputs = classifier(embeddings)
-            _, predicted = torch.max(outputs, 1)
-            total_samples += labels.size(0)
-            total_correct += (predicted == labels).sum().item()
-            testing_bar.update(1)
-        total_accuracy += 100 * total_correct / total_samples
-
-    avg_accuracy = total_accuracy / len(test_loader)
-    print(f"Test Accuracy: {avg_accuracy * 100:.2f}%")
-    summery_writer.add_scalar('Accuracy/test', avg_accuracy)
-    testing_bar.close()
 
 
 if __name__ == '__main__':
     # train_resnet()
-    train(embedding_model="vit")
+    train(embedding_model="resnet50")

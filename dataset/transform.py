@@ -171,26 +171,33 @@ xception_default_data_transforms = {
 
 
 class ImageXaiFolder(Dataset):
-    def __init__(self, original_path, original_xai_path, attacked_path, attacked_xai_path, transform=None,
+    def __init__(self, original_path=None, original_xai_path=None, attacked_path=None, attacked_xai_path=None,
+                 transform=None,
                  black_xai=False, black_img=False):
         super(ImageXaiFolder, self).__init__()
-        self.original_path = original_path
-        self.original_xai_path = original_xai_path
-        self.attacked_path = attacked_path
-        self.attacked_xai_path = attacked_xai_path
+        self.original_path = []
+        self.original_xai_path = []
+        self.attacked_path = []
+        self.attacked_xai_path = []
 
         self.black_xai = black_xai
         self.black_img = black_img
 
-        original_paths = os.listdir(original_path)
-        original_xai_paths = os.listdir(original_xai_path)
-        attacked_paths = os.listdir(attacked_path)
-        attacked_xai_paths = os.listdir(attacked_xai_path)
+        if original_path is not None or original_xai_path is not None:
+            original_paths = os.listdir(original_path)
+            original_xai_paths = os.listdir(original_xai_path)
+            self.original_path = original_path
+            self.original_xai_path = original_xai_path
+            self.original_images = ['original-' + image for image in original_paths if image.endswith(".jpg")]
+            self.original_xai = [image for image in original_xai_paths if image.endswith(".jpg")]
+        if attacked_path is not None or attacked_xai_path is not None:
+            attacked_paths = os.listdir(attacked_path)
+            attacked_xai_paths = os.listdir(attacked_xai_path)
+            self.attacked_path = attacked_path
+            self.attacked_xai_path = attacked_xai_path
+            self.attacked_images = ['attacked-' + image for image in attacked_paths if image.endswith(".jpg")]
+            self.attacked_xai = [image for image in attacked_xai_paths if image.endswith(".jpg")]
 
-        self.original_images = ['original-' + image for image in original_paths if image.endswith(".jpg")]
-        self.original_xai = [image for image in original_xai_paths if image.endswith(".jpg")]
-        self.attacked_images = ['attacked-' + image for image in attacked_paths if image.endswith(".jpg")]
-        self.attacked_xai = [image for image in attacked_xai_paths if image.endswith(".jpg")]
         self.images = self.original_images + self.attacked_images
         self.transform = transform
 

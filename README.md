@@ -4,47 +4,26 @@
 
 ## Setup Requirements
 
-The code is based on PyTorch 11.7 with cuda and requires Python 3.9
+The code is based on PyTorch 2.0.1 with CUDA 11.7 and requires Python 3.9
+The code requires the dlib library. The wheel of this requirement is provided wheels directory only for Windows operating system. For other operating systems, you will to compile the dlib library from source.
+
 
 Install requirements via ```pip install -r requirements.txt```
 
 ## Dataset
 To download the FaceForensics++ dataset, you need to fill out their google form and and once accepted, they will send you the link to the download script.
 
-Once, you obtain the download link, please head to the [download section of FaceForensics++](https://github.com/ondyari/FaceForensics/tree/master/dataset). You can also find details about the generation of the dataset there. To reproduce the experiment results in this paper, you only need to download the c23 videos of all the fake video generation methods.
+Once, you obtain the download link, please head to the [download section of FaceForensics++](https://github.com/ondyari/FaceForensics/tree/master/dataset). You can also find details about the generation of the dataset there. To reproduce the experiment results in this paper, you only need to download the c23 videos of Deepfakes generation method.
 
-## Small subset to try out the attacks
-If you want to try out the attacks on a very small subset of this dataset, create a directory `Data/` in the root folder,  download the zipped dataset from [this link](http://adversarialdeepfakes.github.io/dfsubset.zip) and save unzip inside `Data/` to have the following directory structure:
 
-```
-Data/
-  - DFWebsite/
-      - Deepfakes/
-      - Face2Face/
-      - FaceSwap/
-      - NeuralTextures/
-```
-
-## Victim Pre-trained Models
+## Victim Pre-trained Deepfake Detectors Models
 
 ### XceptionNet
-The authors of FaceForensics++ provide XceptionNet model trained on our FaceForensics++ dataset. 
-You can find our used models under [this link](http://kaldir.vc.in.tum.de:/FaceForensics/models/faceforensics++_models.zip). Download zip and unzip it in the root project directory.
+You can find the pre-trained XceptionNet model weights in 'models' directory in file name 'xception.p'.
 
-### MesoNet
+### EfficientNetB4ST
 
-We use the PyTorch implementation of [MesoNet](https://github.com/HongguLiu/MesoNet-Pytorch). The pretrained model can be downloaded from [here](https://github.com/HongguLiu/MesoNet-Pytorch/blob/master/output/Mesonet/best.pkl?raw=true). Once downloaded save the pkl as `Meso4_deepfake.pkl` inside ```faceforensics++_models_subset/face_detection/Meso```  directory which was created by unzipping the XceptionNet models in the previous link. 
-
-After saving the weights the `faceforensics++_models_subset/` directory should have the following structure:
-
-```
-faceforensics++_models_subset/
-  - face_detection/
-    - Meso
-      - Meso4_deepfake.pkl
-    - xception
-      - all_c23.p
-```
+You can find the pre-trained EfficientNetB4ST model weights in 'models' directory in file name 'EfficientNetB4ST.pth'.
     
 
 
@@ -109,4 +88,46 @@ Example of the directory structure of videos detected with EfficientNetB4ST deep
       - Saliency/
       - InputXGradient/
       - IntegratedGradients/
+```
+
+### Train an Attack Detector
+For training an attack detector, you can use the following setup:
+```shell
+python train.py
+-tri <path to input folder of train real frames (facecrop + XAI maps) >
+-tai <path to input folder of train attacked frames (facecrop + XAI maps) >
+-vri <path to input folder of validation real frames (facecrop + XAI maps) >
+-vai <path to input folder of validation attacked frames (facecrop + XAI maps) >
+-e <number of epochs>
+-lr <learning rate>
+-b <batch size>
+-fr <boolean, add if freeze backbone layers on training>
+-xm <XAI method to use, choose from the following: GuidedBackprop, Saliency, InputXGradient, IntegratedGradients>
+-dt <type of deepfake detector, choose either xception or EfficientNetB4ST >
+```
+The output of the training summery and the models weights will be saved in ```runs_resnet50_frozen<-fr>/<Deepfake Detector type>/<XAI method>/<Data and time of the training>/``` directory.
+There are 2 kind of models that will be saved, one is the model with the best validation accuracy (best_model.pth) and the other is the model at the last epoch (last_model.pth).
+
+Example:
+```shell
+python train.py -tri Frames/real/ -tai Frames/attacked/apgd-ce/EfficientNetB4ST/ -vri Frames/real/ -vai Frames/attacked/apgd-ce/EfficientNetB4ST/ -e 100 -lr 0.001 -b 16 -xm GuidedBackprop -dt EfficientNetB4ST
+```
+
+### Test an Attack Detector
+For testing an attack detector, you can use the following setup:
+```shell
+python test.py
+-mi <path to pre-trained attack detector model weights>
+-mt <type of deepfake detector model, choose either xception or EfficientNetB4ST >
+-xm <XAI method to use, choose from the following: GuidedBackprop, Saliency, InputXGradient, IntegratedGradients>
+-o <path to output folder>
+-rd <path to directory containing real frames (facecrop + XAI maps) >
+-ad <path to directory containing attacked frames (facecrop + XAI maps) >
+-b <batch size>
+```
+The output of the testing will be saved in ```<output path>\<deepfake detector type>\<XAI method>``` directory. The directory will contain the average accuracy on the test set in file ```model_acc.txt```, and the ROC curve graph in file ```ROC_graph.png```.
+
+Example:
+```shell
+python test.py -mi runs_resnet50_frozenFalse/EfficientNetB4ST/GuidedBackprop/2022-03-29_14-00-00/best_model.pth -mt EfficientNetB4ST -xm GuidedBackprop -o test_results/ -rd Frames/real/ -ad Frames/attacked/apgd-ce/EfficientNetB4ST/ -b 16
 ```
