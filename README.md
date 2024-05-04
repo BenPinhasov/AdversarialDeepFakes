@@ -60,6 +60,20 @@ Example:
 ```shell
 python auto_attack.py -i Data/DFWebsite/DeepFakes/c23/videos/ -o temadv/ -mt EfficientNetB4ST -mi models/EfficientNetB4ST.pth -a apgd-ce --cuda --eps 0.01
 ```
+
+### Calculate statistics of the videos in a directory
+After creating adversarial examples or detecting frames of the videos with ```detect_from_video.py``` script, you can calculate the statistics of the videos in a directory. With this script we can calculate accuracy of the deepfake detector.
+```shell
+python summarize_stats.py
+--dataset_path <path to directory containing videos and their json files >
+--model_type <type of model, choose either xception or EfficientNetB4ST >
+--threshold <threshold value for consider fake or real >
+```
+Example:
+```shell
+python summarize_stats.py --dataset_path tempadv/attacked/apgd-ce/EfficientNetB4ST/ --model_type EfficientNetB4ST --threshold 0.5
+```
+
 ### Create XAI maps for test or train set
 
 this setup is for creating XAI maps for the test or train set of videos in a directory.
