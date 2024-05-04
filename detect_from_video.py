@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 from PIL import Image as pil_image
 from tqdm import tqdm
-# from tensorflow.keras import layers, Sequential
 from network.models import model_selection
 from dataset.transform import xception_default_data_transforms, EfficientNetB4ST_default_data_transforms
 import json
@@ -65,8 +64,6 @@ def preprocess_image(image, model_type, cuda=True):
     if model_type == "xception":
         preprocess = xception_default_data_transforms['test']
     elif model_type == 'EfficientNetB4ST':
-        # normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        # preprocess = get_transformer('scale', 224, normalizer, train=False)
         preprocess = EfficientNetB4ST_default_data_transforms['test']
     preprocessed_image = preprocess(pil_image.fromarray(image))
     # Add first dimension as the network expects a batch
@@ -129,7 +126,6 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
     # Read and write
     reader = cv2.VideoCapture(video_path)
 
-    # video_fn = video_path.split('/')[-1].split('.')[0] + '.avi'
     video_fn = os.path.basename(video_path).split('.')[0] + '.avi'
     os.makedirs(output_path, exist_ok=True)
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
@@ -139,10 +135,6 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
 
     # Face detector
     face_detector = dlib.get_frontal_face_detector()
-
-    # Load model
-    # model, *_ = model_selection(modelname='xception', num_out_classes=2)
-    # Load model
     if model_path is not None:
         post_function = nn.Softmax(dim=1)
         if not cuda:
@@ -249,10 +241,6 @@ def test_full_image_network(video_path, model_path, model_type, output_path,
 
         if frame_num >= end_frame:
             break
-
-        # Show
-        # cv2.imshow('test', image)
-        # cv2.waitKey(33)     # About 30 fps
         writer.write(image)
 
     pbar.close()
@@ -299,7 +287,6 @@ if __name__ == '__main__':
         pbar_global = tqdm(total=len(videos))
         for video in videos:
             args.video_path = join(video_path, video)
-            # args.video_path = video
             blockPrint()
             test_full_image_network(**vars(args))
             enablePrint()
