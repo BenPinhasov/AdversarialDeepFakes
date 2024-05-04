@@ -4,7 +4,7 @@ import math
 import os
 
 import numpy as np
-from autoattack import AutoAttack
+from autoattack.autoattack import AutoAttack
 from torch import nn
 from tqdm import tqdm
 from torchvision import transforms

@@ -5,7 +5,7 @@
 ## Setup Requirements
 
 The code is based on PyTorch 2.0.1 with CUDA 11.7 and requires Python 3.9
-The code requires the dlib library. The wheel of this requirement is provided wheels directory only for Windows operating system. For other operating systems, you will to compile the dlib library from source.
+The code requires the dlib library. The wheel of this requirement is provided wheels directory only for Windows operating system. For other operating systems, you will need to compile the dlib library from source.
 
 
 Install requirements via ```pip install -r requirements.txt```

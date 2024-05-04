@@ -1,15 +1,3 @@
-"""
-Create adversarial videos that can fool xceptionnet.
-
-Usage:
-python attack.py
-    -i <folder with video files or path to video file>
-    -m <path to model file>
-    -o <path to output folder, will write one or multiple output videos there>
-
-built upon the code by Andreas Rössler for detecting deep fakes.
-"""
-
 import sys
 import argparse
 from os.path import join
