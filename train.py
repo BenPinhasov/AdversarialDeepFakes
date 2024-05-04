@@ -1,4 +1,5 @@
 import argparse
+import os.path
 
 import numpy as np
 from torchvision.models import resnet50, ResNet50_Weights
@@ -91,14 +92,14 @@ def train(embedding_model="resnet50"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     detector_type = args.detector_type
     xai_method = args.xai_method
-    train_original_crops_path = rf'{args.train_real_dataset_path}\{detector_type}\Frames'
-    train_original_xai_path = rf'{args.train_real_dataset_path}\{detector_type}\{xai_method}'
-    train_attacked_path = rf'{args.train_attacked_dataset_path}\{detector_type}\Frames'
-    train_attacked_xai_path = rf'{args.train_attacked_dataset_path}\{detector_type}\{xai_method}'
-    validation_original_crops_path = rf'{args.validation_real_dataset_path}\{detector_type}\Frames'
-    validation_original_xai_path = rf'{args.validation_real_dataset_path}\{detector_type}\{xai_method}'
-    validation_attacked_path = rf'{args.validation_attacked_dataset_path}\{detector_type}\Frames'
-    validation_attacked_xai_path = rf'{args.validation_attacked_dataset_path}\{detector_type}\{xai_method}'
+    train_original_crops_path = os.path.join(args.train_real_dataset_path, detector_type, 'Frames')
+    train_original_xai_path = os.path.join(args.train_real_dataset_path, detector_type, xai_method)
+    train_attacked_path = os.path.join(args.train_attacked_dataset_path, detector_type, 'Frames')
+    train_attacked_xai_path = os.path.join(args.train_attacked_dataset_path, detector_type, xai_method)
+    validation_original_crops_path = os.path.join(args.validation_real_dataset_path, detector_type, 'Frames')
+    validation_original_xai_path = os.path.join(args.validation_real_dataset_path, detector_type, xai_method)
+    validation_attacked_path = os.path.join(args.validation_attacked_dataset_path, detector_type, 'Frames')
+    validation_attacked_xai_path = os.path.join(args.validation_attacked_dataset_path, detector_type, xai_method)
 
     num_epochs = args.epochs
     lr = args.lr
@@ -107,8 +108,6 @@ def train(embedding_model="resnet50"):
     frozen = args.frozen
 
     time = dt.datetime.now().strftime('%b%d_%H-%M-%S')
-    detector_type = train_original_xai_path.split('\\')[-2]
-    xai_method = train_original_xai_path.split('\\')[-1]
     summery_path = f'runs_{embedding_model}_frozen{frozen}/{detector_type}/{xai_method}/{time}_lr{lr}_batch{batch_size}'
     summery_writer = SummaryWriter(log_dir=summery_path)
     # data = np.load(data_path).astype("float16")
@@ -181,8 +180,6 @@ def train(embedding_model="resnet50"):
                 val_xais = val_xais.to(device)
                 val_labels = val_labels.to(device)
                 val_outputs = model(val_images.float(), val_xais.float())
-                # val_outputs = model(val_xais.float())
-                # val_outputs = activation_function(val_outputs)
                 val_loss = criterion(val_outputs, val_labels)
                 accuracy = calculate_accuracy(activation_function(val_outputs), val_labels)
                 total_accuracy += accuracy
