@@ -27,7 +27,7 @@ You can find the pre-trained EfficientNetB4ST model weights in 'models' director
     
 
 
-### Running an attack on videos directory
+## Running an attack on videos directory
 
 This setup is for running pgd, fgsm, nes attack to create adversarial examples on video files in directory. 
 ```shell
@@ -61,7 +61,22 @@ Example:
 python auto_attack.py -i Data/DFWebsite/DeepFakes/c23/videos/ -o temadv/ -mt EfficientNetB4ST -mi models/EfficientNetB4ST.pth -a apgd-ce --cuda --eps 0.01
 ```
 
-### Calculate statistics of the videos in a directory
+## Detect frames of videos in a directory
+This setup is for detecting frames of the videos in a directory. The output of this setup is json file with all probs of the frames of the videos. This json will be use for calculate accuracy of the deepfake detector.
+```shell
+python detect_from_video.py
+--video_path <path to directory containing videos>
+--model_path <path to deepfake detector model>
+--model_type <type of model, choose either xception or EfficientNetB4ST >
+--output_path <path to output directory, will contain output frames >
+--cuda < if provided will run on GPU >
+```
+Example:
+```shell
+python detect_from_video.py --video_path tempadv/attacked/apgd-ce/EfficientNetB4ST --model_path models/EfficientNetB4ST.pth --model_type EfficientNetB4ST --output_path temadv/attacked/apgd-ce/EfficientNetB4ST --cuda
+```
+
+## Calculate statistics of the videos in a directory
 After creating adversarial examples or detecting frames of the videos with ```detect_from_video.py``` script, you can calculate the statistics of the videos in a directory. With this script we can calculate accuracy of the deepfake detector.
 ```shell
 python summarize_stats.py
@@ -74,7 +89,7 @@ Example:
 python summarize_stats.py --dataset_path tempadv/attacked/apgd-ce/EfficientNetB4ST/ --model_type EfficientNetB4ST --threshold 0.5
 ```
 
-### Create XAI maps for test or train set
+## Create XAI maps for test or train set
 
 this setup is for creating XAI maps for the test or train set of videos in a directory.
 
@@ -104,7 +119,7 @@ Example of the directory structure of videos detected with EfficientNetB4ST deep
       - IntegratedGradients/
 ```
 
-### Train an Attack Detector
+## Train an Attack Detector
 For training an attack detector, you can use the following setup:
 ```shell
 python train.py
@@ -127,7 +142,7 @@ Example:
 python train.py -tri Frames/real/ -tai Frames/attacked/apgd-ce/EfficientNetB4ST/ -vri Frames/real/ -vai Frames/attacked/apgd-ce/EfficientNetB4ST/ -e 100 -lr 0.001 -b 16 -xm GuidedBackprop -dt EfficientNetB4ST
 ```
 
-### Test an Attack Detector
+## Test an Attack Detector
 For testing an attack detector, you can use the following setup:
 ```shell
 python test.py
